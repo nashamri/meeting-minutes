@@ -37,6 +37,32 @@ _preview_urls: list[str] = []
 _tabs_ref = None
 _status_label = None
 _status_history: list[dict] = []
+_drag_state: dict = {"from": None}
+
+
+def _on_article_drop(to_idx: int) -> None:
+    from_idx = _drag_state.get("from")
+    _drag_state["from"] = None
+    if from_idx is None or from_idx == to_idx:
+        return
+    article = _meeting.articles.pop(from_idx)
+    _meeting.articles.insert(to_idx, article)
+    _articles_list.refresh()
+
+
+def _confirm(title: str, message: str, on_confirm) -> None:
+    with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[480px]"):
+        ui.label(title).classes("text-lg font-semibold")
+        ui.label(message).classes("text-sm")
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+
+            def _ok() -> None:
+                dialog.close()
+                on_confirm()
+
+            ui.button("نعم، احذف", on_click=_ok).props("unelevated color=negative")
+    dialog.open()
 
 
 def _notify(message: str, *, type: str = "info", **kwargs) -> None:
@@ -438,61 +464,90 @@ def _articles_list(meeting: Meeting) -> None:
         )
         return
     for index, article in enumerate(meeting.articles):
-        title_preview = (article.title or f"موضوع جديد {index + 1}").strip()
-        with ui.expansion(f"{index + 1}. {title_preview}", icon="description").classes(
-            "w-full"
-        ):
-            with ui.column().classes("w-full gap-3 p-2"):
-                ui.input("العنوان").bind_value(article, "title").classes("w-full")
-                ui.textarea("الوصف والمناقشة").bind_value(article, "body").props(
-                    "rows=4 autogrow"
-                ).classes("w-full")
-                ui.textarea("القرار / التوصية").bind_value(article, "decision").props(
-                    "rows=2 autogrow"
-                ).classes("w-full")
-                ui.textarea("مستند القرار").bind_value(article, "legal_refs").props(
-                    "rows=2 autogrow"
-                ).classes("w-full")
-                ui.input("الجهة ذات العلاقة").bind_value(article, "target").classes(
-                    "w-full"
-                )
-
-                tables = find_tables(article.body)
+        with ui.row().classes("w-full items-stretch gap-0 no-wrap"):
+            handle = (
+                ui.element("div")
+                .classes("flex items-center px-1 cursor-grab text-gray-400")
+                .props("draggable=true")
+            )
+            with handle:
+                ui.icon("drag_indicator")
+            handle.on("dragstart", lambda e, i=index: _drag_state.update({"from": i}))
+            drop_target = ui.element("div").classes("flex-1 min-w-0 rounded")
+            drop_target.on("dragover.prevent", lambda e: None)
+            drop_target.on(
+                "dragenter", lambda e, el=drop_target: el.classes(add="bg-blue-1")
+            )
+            drop_target.on(
+                "dragleave", lambda e, el=drop_target: el.classes(remove="bg-blue-1")
+            )
+            drop_target.on(
+                "drop",
+                lambda e, i=index, el=drop_target: (
+                    el.classes(remove="bg-blue-1"),
+                    _on_article_drop(i),
+                ),
+            )
+            with drop_target:
+                title_preview = (article.title or f"موضوع جديد {index + 1}").strip()
                 with ui.expansion(
-                    f"الجداول ({len(tables)})", icon="grid_on"
-                ).classes("w-full"):
-                    if tables:
-                        for ti, t in enumerate(tables):
-                            rows = max(1, len(t.cells) // max(1, t.columns))
-                            with ui.row().classes(
-                                "w-full items-center justify-between gap-2"
-                            ):
-                                ui.label(
-                                    f"الجدول {ti + 1} — {rows}×{t.columns}"
-                                ).classes("text-sm")
-                                ui.button(
-                                    "تعديل",
-                                    icon="edit",
-                                    on_click=lambda a=article, idx=ti: _open_table_editor(
-                                        a, idx, _articles_list.refresh
-                                    ),
-                                ).props("flat dense")
-                    else:
-                        ui.label("لا يوجد جداول.").classes("text-sm text-gray-500")
-                    ui.button(
-                        "إضافة جدول",
-                        icon="add",
-                        on_click=lambda a=article: _open_table_editor(
-                            a, None, _articles_list.refresh
-                        ),
-                    ).props("dense unelevated").classes("mt-2")
+                    f"{index + 1}. {title_preview}", icon="description"
+                ).props('header-class="text-weight-bold text-primary"').classes("w-full"):
+                    with ui.column().classes("w-full gap-3 p-2"):
+                        ui.input("العنوان").bind_value(article, "title").classes("w-full")
+                        ui.textarea("الوصف والمناقشة").bind_value(article, "body").props(
+                            "rows=4 autogrow"
+                        ).classes("w-full")
+                        ui.textarea("القرار / التوصية").bind_value(article, "decision").props(
+                            "rows=2 autogrow"
+                        ).classes("w-full")
+                        ui.textarea("مستند القرار").bind_value(article, "legal_refs").props(
+                            "rows=2 autogrow"
+                        ).classes("w-full")
+                        ui.input("الجهة ذات العلاقة").bind_value(article, "target").classes(
+                            "w-full"
+                        )
 
-                with ui.row().classes("w-full justify-end"):
-                    ui.button(
-                        "حذف الموضوع",
-                        icon="delete",
-                        on_click=lambda a=article: _remove_article(meeting, a),
-                    ).props("flat color=negative")
+                        tables = find_tables(article.body)
+                        with ui.expansion(
+                            f"الجداول ({len(tables)})", icon="grid_on"
+                        ).classes("w-full"):
+                            if tables:
+                                for ti, t in enumerate(tables):
+                                    rows = max(1, len(t.cells) // max(1, t.columns))
+                                    with ui.row().classes(
+                                        "w-full items-center justify-between gap-2"
+                                    ):
+                                        ui.label(
+                                            f"الجدول {ti + 1} — {rows}×{t.columns}"
+                                        ).classes("text-sm")
+                                        ui.button(
+                                            "تعديل",
+                                            icon="edit",
+                                            on_click=lambda a=article, idx=ti: _open_table_editor(
+                                                a, idx, _articles_list.refresh
+                                            ),
+                                        ).props("flat dense")
+                            else:
+                                ui.label("لا يوجد جداول.").classes("text-sm text-gray-500")
+                            ui.button(
+                                "إضافة جدول",
+                                icon="add",
+                                on_click=lambda a=article: _open_table_editor(
+                                    a, None, _articles_list.refresh
+                                ),
+                            ).props("dense unelevated").classes("mt-2")
+
+                        with ui.row().classes("w-full justify-end"):
+                            ui.button(
+                                "حذف الموضوع",
+                                icon="delete",
+                                on_click=lambda a=article: _confirm(
+                                    "تأكيد الحذف",
+                                    f"هل تريد حذف الموضوع: «{(a.title.strip() or 'بدون عنوان')[:80]}»؟",
+                                    lambda art=a: _remove_article(meeting, art),
+                                ),
+                            ).props("flat color=negative")
 
 
 def _open_table_editor(

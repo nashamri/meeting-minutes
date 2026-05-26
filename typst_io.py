@@ -13,8 +13,16 @@ def _quote(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _article_filename(index: int) -> str:
-    return f"article-{index + 1:02d}.typ"
+_FILENAME_INVALID_CHARS = '/\\\n\r\t\0:*?"<>|'
+
+
+def _article_filename(index: int, title: str) -> str:
+    words = title.strip().split()[:10]
+    slug = " ".join(words)
+    slug = "".join("_" if c in _FILENAME_INVALID_CHARS else c for c in slug).strip()
+    if not slug:
+        slug = "article"
+    return f"{index + 1:02d}_{slug}.typ"
 
 
 def _render_constants(meeting: Meeting) -> str:
@@ -130,9 +138,11 @@ def write_meeting(meeting: Meeting, dest_dir: Path) -> Path:
 
     articles_dir = dest_dir / "articles"
     articles_dir.mkdir(exist_ok=True)
-    article_filenames = [_article_filename(i) for i in range(len(meeting.articles))]
+    article_filenames = [
+        _article_filename(i, art.title) for i, art in enumerate(meeting.articles)
+    ]
     keep = set(article_filenames)
-    for old in articles_dir.glob("article-*.typ"):
+    for old in articles_dir.glob("*.typ"):
         if old.name not in keep:
             old.unlink()
     for filename, article in zip(article_filenames, meeting.articles):
