@@ -85,6 +85,7 @@
             [
               platformdirs
               pywebview
+              nicegui
             ]
             ++ lib.optionals stdenv.isLinux [
               pyside6
@@ -105,15 +106,15 @@
               runHook preInstall
 
               mkdir -p $out/share/meetings-minutes $out/bin
-              cp main.py webapp.py gui_main.py pyproject.toml \
+              cp main.py webapp.py gui_main.py models.py typst_io.py pyproject.toml \
                 $out/share/meetings-minutes/
-              cp -r web $out/share/meetings-minutes/
               if [ -d assets ]; then
                 cp -r assets $out/share/meetings-minutes/
               fi
 
               makeWrapper ${pythonEnv}/bin/python $out/bin/meetings-minutes \
-                --add-flags "$out/share/meetings-minutes/main.py"
+                --add-flags "$out/share/meetings-minutes/main.py" \
+                --prefix PATH : ${lib.makeBinPath [ pkgs.typst ]}
 
               runHook postInstall
             '';
@@ -131,7 +132,7 @@
           packages.meetings-minutes = app;
 
           devShells.default = pkgs.mkShell {
-            packages = [ pkgs.uv ];
+            packages = [ pkgs.uv pkgs.typst ];
 
             shellHook =
               (lib.optionalString stdenv.isLinux ''

@@ -2,7 +2,7 @@
 name = "meetings-minutes"
 version = "0.1.0"
 description = "Capture and summarize meeting minutes"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "nicegui",
     "platformdirs",
