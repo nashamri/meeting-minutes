@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Meetings Minutes
+Comment=Capture and summarize meeting minutes
+Exec=meetings-minutes
+Icon=meetings-minutes
+Categories=Utility;
+Terminal=false

@@ -1,0 +1,151 @@
+name: Build releases
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # --- Windows: single-file windowed .exe ------------------------------------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          uv pip install pyinstaller
+
+      - name: Build
+        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+
+      - name: Verify artifact exists
+        run: if not exist dist\meetings-minutes.exe (echo Build missing && exit /b 1)
+        shell: cmd
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meetings-minutes-windows
+          path: dist/meetings-minutes.exe
+          if-no-files-found: error
+
+  # --- macOS: .app bundle, signed ad-hoc, packaged into a .dmg ---------------
+  # Apple has dropped Intel; GitHub's `macos-15-intel` is the last Intel
+  # runner (slated for retirement in Fall 2027), so it's our final window
+  # for shipping an Intel DMG. arm64 builds on macos-14.
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          uv pip install pyinstaller
+
+      - name: Build
+        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+
+      # Ad-hoc signing is mandatory on Apple Silicon for the binary to launch
+      # at all, and harmless on Intel. Real notarization needs an Apple
+      # Developer cert (out of scope here); users will still need to right-
+      # click → Open the first time, or run `xattr -cr` to clear quarantine.
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - "dist/Meetings Minutes.app"
+          codesign --verify --verbose "dist/Meetings Minutes.app"
+
+      - name: Build DMG
+        run: |
+          hdiutil create -volname "Meetings Minutes" \
+            -srcfolder "dist/Meetings Minutes.app" \
+            -ov -format UDZO \
+            "dist/meetings-minutes-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meetings-minutes-macos-${{ matrix.arch }}
+          path: dist/meetings-minutes-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+  # --- Linux: PyInstaller binary wrapped into an AppImage --------------------
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      # AppImage's runtime needs FUSE 2 to mount itself on launch; the
+      # ubuntu-latest runner ships FUSE 3 by default.
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
+      - name: Install Python dependencies (with linux extra for PySide6)
+        run: |
+          uv sync --extra linux
+          uv pip install pyinstaller
+
+      - name: Build
+        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+
+      - name: Download appimagetool
+        run: |
+          curl -L -o appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+      - name: Build AppImage
+        env:
+          APPIMAGETOOL: ${{ github.workspace }}/appimagetool
+        run: ./packaging/linux/build-appimage.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meetings-minutes-linux
+          path: dist/meetings-minutes-x86_64.AppImage
+          if-no-files-found: error
+
+  # --- Release: only on tag pushes, after all builds succeed -----------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

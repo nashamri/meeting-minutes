@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meetings Minutes</title>
+  <script>
+    // Apply cached theme before paint to avoid flash.
+    (function () {
+      try {
+        var t = localStorage.getItem("theme");
+        if (t === "dark" || t === "light") {
+          document.documentElement.dataset.theme = t;
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #3B82F6;
+      --accent-fg: #ffffff;
+      --button-bg: #f3f4f6;
+      --button-fg: #1a1a1a;
+      --modal-bg: #ffffff;
+      --backdrop: rgba(0, 0, 0, 0.4);
+    }
+    :root[data-theme="dark"] {
+      --bg: #111827;
+      --fg: #f9fafb;
+      --muted: #9ca3af;
+      --border: #374151;
+      --button-bg: #1f2937;
+      --button-fg: #f9fafb;
+      --modal-bg: #1f2937;
+      --backdrop: rgba(0, 0, 0, 0.6);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--fg); }
+    header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px; border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 32px; height: 32px; background: var(--accent); border-radius: 6px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .title { font-size: 18px; font-weight: 600; flex: 1; }
+    .icon-button {
+      background: var(--button-bg); color: var(--button-fg);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 10px; cursor: pointer; font-size: 14px; line-height: 1;
+    }
+    .icon-button:hover { opacity: 0.85; }
+    main { padding: 20px; }
+    .modal-backdrop {
+      position: fixed; inset: 0; background: var(--backdrop);
+      display: none; align-items: center; justify-content: center; z-index: 10;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--modal-bg); color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 24px; min-width: 320px; max-width: 500px;
+    }
+    .modal h2 { margin: 0 0 12px; font-size: 18px; }
+    .info-row {
+      display: flex; justify-content: space-between; gap: 16px;
+      padding: 6px 0; font-size: 13px;
+    }
+    .info-row .key { color: var(--muted); }
+    .info-row a { color: var(--accent); text-decoration: none; }
+    .info-row a:hover { text-decoration: underline; }
+    .actions { margin-top: 16px; text-align: right; }
+    button.primary {
+      background: var(--accent); color: var(--accent-fg);
+      border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 500;
+    }
+    button.primary:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M10 4v8m0 0l-3-3m3 3l3-3M5 16h10"
+              stroke="white" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="title">Meetings Minutes</div>
+    <button class="icon-button" id="theme-toggle" title="Toggle theme">🌙</button>
+    <button class="icon-button" id="about-button" title="About">&#9432;</button>
+  </header>
+
+  <main>
+    <p>Welcome to Meetings Minutes.</p>
+    <!-- TODO: add your app UI here. Expose Python methods via the Api class in webapp.py
+         and call them as window.pywebview.api.<method_name>(...). -->
+  </main>
+
+  <div class="modal-backdrop" id="about-modal">
+    <div class="modal">
+      <h2>About</h2>
+      <div id="about-content"></div>
+      <div class="actions">
+        <button class="primary" onclick="closeAbout()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function applyTheme(t, opts) {
+      opts = opts || {};
+      document.documentElement.dataset.theme = t;
+      try { localStorage.setItem("theme", t); } catch (e) {}
+      document.getElementById("theme-toggle").textContent = t === "dark" ? "☀" : "🌙";
+      if (opts.persistRemote && window.pywebview && window.pywebview.api) {
+        window.pywebview.api.set_theme(t);
+      }
+    }
+
+    function toggleTheme() {
+      var current = document.documentElement.dataset.theme || "light";
+      applyTheme(current === "dark" ? "light" : "dark", { persistRemote: true });
+    }
+
+    async function openAbout() {
+      var info = await window.pywebview.api.get_app_info();
+      var rows = [
+        ["Name", escapeHtml(info.name)],
+        ["Version", escapeHtml(info.version)],
+        ["Tagline", escapeHtml(info.tagline)],
+        ["Python", escapeHtml(info.python_version)],
+        ["Platform", escapeHtml(info.platform)],
+        ["Config", '<span style="word-break: break-all; font-size: 11px;">' + escapeHtml(info.config_path) + '</span>'],
+        ["Source", '<a href="#" data-url="' + escapeHtml(info.repo_url) + '" class="repo-link">' + escapeHtml(info.repo_url) + '</a>'],
+      ];
+      var html = rows.map(function (r) {
+        return '<div class="info-row"><span class="key">' + r[0] + '</span><span>' + r[1] + '</span></div>';
+      }).join("");
+      var content = document.getElementById("about-content");
+      content.innerHTML = html;
+      content.querySelectorAll(".repo-link").forEach(function (a) {
+        a.addEventListener("click", function (e) {
+          e.preventDefault();
+          window.pywebview.api.open_url(a.dataset.url);
+        });
+      });
+      document.getElementById("about-modal").classList.add("open");
+    }
+
+    function closeAbout() {
+      document.getElementById("about-modal").classList.remove("open");
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("about-button").addEventListener("click", openAbout);
+    document.getElementById("about-modal").addEventListener("click", function (e) {
+      if (e.target === this) closeAbout();
+    });
+
+    window.addEventListener("pywebviewready", async function () {
+      var state = await window.pywebview.api.get_initial_state();
+      var t = state.theme
+        || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      applyTheme(t, { persistRemote: !state.theme });
+    });
+  </script>
+</body>
+</html>
