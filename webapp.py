@@ -22,6 +22,46 @@ from typst_io import read_meeting, write_meeting
 _meeting = Meeting()
 _preview_urls: list[str] = []
 _tabs_ref = None
+_status_label = None
+_status_history: list[dict] = []
+
+
+def _notify(message: str, *, type: str = "info", **kwargs) -> None:
+    _status_history.append(
+        {
+            "time": time.strftime("%H:%M:%S"),
+            "message": message,
+            "type": type,
+        }
+    )
+    if _status_label is not None:
+        _status_label.text = message
+    kwargs.setdefault("position", "top-left")
+    ui.notify(message, type=type, **kwargs)
+
+
+def _show_history() -> None:
+    with ui.dialog() as dialog, ui.card().classes("min-w-[420px] max-w-[640px]"):
+        ui.label("سجل الإشعارات").classes("text-lg font-semibold")
+        if not _status_history:
+            ui.label("لا توجد إشعارات بعد.").classes("text-sm text-gray-500")
+        else:
+            with ui.column().classes("w-full gap-1 max-h-96 overflow-auto"):
+                colors = {
+                    "positive": "text-green-700",
+                    "negative": "text-red-700",
+                    "warning": "text-yellow-700",
+                }
+                for entry in reversed(_status_history):
+                    color = colors.get(entry["type"], "")
+                    with ui.row().classes("w-full items-start gap-2 text-sm"):
+                        ui.label(entry["time"]).classes(
+                            "text-gray-500 shrink-0 w-20 font-mono"
+                        )
+                        ui.label(entry["message"]).classes(f"flex-1 {color}")
+        with ui.row().classes("w-full justify-end mt-2"):
+            ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+    dialog.open()
 
 _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 _FONTS_DIR = _RESOURCE_ROOT / "assets" / "fonts"
@@ -70,7 +110,7 @@ async def _open_meeting() -> None:
 
     win = app.native.main_window
     if win is None:
-        ui.notify("ميزة الفتح متاحة في الوضع الأصلي فقط.", type="negative")
+        _notify("ميزة الفتح متاحة في الوضع الأصلي فقط.", type="negative")
         return
     dialog_type = (
         webview.FileDialog.FOLDER
@@ -88,7 +128,7 @@ async def _open_meeting() -> None:
     try:
         loaded = read_meeting(src)
     except OSError as exc:
-        ui.notify(f"تعذّر فتح الاجتماع: {exc}", type="negative")
+        _notify(f"تعذّر فتح الاجتماع: {exc}", type="negative")
         return
     for attr in (
         "name",
@@ -107,7 +147,7 @@ async def _open_meeting() -> None:
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
-    ui.notify(f"فُتح: {src.name}", type="positive", timeout=4000)
+    _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
 
 
 def _resolve_meeting_dest() -> Path | None:
@@ -119,7 +159,7 @@ def _resolve_meeting_dest() -> Path | None:
     if not _meeting.number_num.strip():
         missing.append("رقم الجلسة")
     if missing:
-        ui.notify("الرجاء تعبئة: " + "، ".join(missing), type="negative")
+        _notify("الرجاء تعبئة: " + "، ".join(missing), type="negative")
         return None
     root = load_meetings_root()
     return (
@@ -137,9 +177,9 @@ def _save_current_meeting() -> Path | None:
     try:
         write_meeting(_meeting, dest)
     except OSError as exc:
-        ui.notify(f"تعذّر الحفظ: {exc}", type="negative")
+        _notify(f"تعذّر الحفظ: {exc}", type="negative")
         return None
-    ui.notify(f"حُفظ في: {dest}", type="positive", timeout=5000)
+    _notify(f"حُفظ في: {dest}", type="positive", timeout=5000)
     return dest
 
 
@@ -148,7 +188,7 @@ async def _compile_meeting() -> None:
     if dest is None:
         return
     if not shutil.which("typst"):
-        ui.notify(
+        _notify(
             "لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative"
         )
         return
@@ -180,12 +220,12 @@ async def _compile_meeting() -> None:
         else:
             svg_result = None
     except subprocess.TimeoutExpired:
-        ui.notify("انتهى وقت التصدير.", type="negative")
+        _notify("انتهى وقت التصدير.", type="negative")
         return
 
     if pdf_result.returncode != 0:
         msg = (pdf_result.stderr or pdf_result.stdout).strip()[:400] or "خطأ غير معروف"
-        ui.notify(f"فشل التصدير: {msg}", type="negative", multi_line=True)
+        _notify(f"فشل التصدير: {msg}", type="negative", multi_line=True)
         return
 
     global _preview_urls
@@ -200,7 +240,7 @@ async def _compile_meeting() -> None:
     _pdf_view.refresh()
     if _tabs_ref is not None:
         _tabs_ref.set_value("pdf")
-    ui.notify(f"تم التصدير: {pdf_path}", type="positive", timeout=5000)
+    _notify(f"تم التصدير: {pdf_path}", type="positive", timeout=5000)
 
 
 @ui.refreshable
@@ -293,6 +333,12 @@ def _index() -> None:
             _end_matter_panel(_meeting)
         with ui.tab_panel(pdf_tab):
             _pdf_view()
+
+    global _status_label
+    with ui.footer().classes("items-center gap-2 px-3 py-1 cursor-pointer") as footer:
+        ui.icon("history").classes("text-sm")
+        _status_label = ui.label("جاهز").classes("text-sm")
+    footer.on("click", _show_history)
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
