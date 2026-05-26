@@ -17,9 +17,9 @@ _FILENAME_INVALID_CHARS = '/\\\n\r\t\0:*?"<>|'
 
 
 def _article_filename(index: int, title: str) -> str:
-    words = title.strip().split()[:10]
+    words = title.strip().split()[:15]
     slug = " ".join(words)
-    slug = "".join("_" if c in _FILENAME_INVALID_CHARS else c for c in slug).strip()
+    slug = "".join(" " if c in _FILENAME_INVALID_CHARS else c for c in slug).strip()
     if not slug:
         slug = "article"
     return f"{index + 1:02d}_{slug}.typ"
@@ -132,9 +132,7 @@ def write_meeting(meeting: Meeting, dest_dir: Path) -> Path:
                 shutil.copytree(src, target)
             else:
                 shutil.copy2(src, target)
-    (lib_dir / "constants.typ").write_text(
-        _render_constants(meeting), encoding="utf-8"
-    )
+    (lib_dir / "constants.typ").write_text(_render_constants(meeting), encoding="utf-8")
 
     articles_dir = dest_dir / "articles"
     articles_dir.mkdir(exist_ok=True)
@@ -146,9 +144,7 @@ def write_meeting(meeting: Meeting, dest_dir: Path) -> Path:
         if old.name not in keep:
             old.unlink()
     for filename, article in zip(article_filenames, meeting.articles):
-        (articles_dir / filename).write_text(
-            _render_article(article), encoding="utf-8"
-        )
+        (articles_dir / filename).write_text(_render_article(article), encoding="utf-8")
 
     (dest_dir / "main.typ").write_text(
         _render_main(meeting, article_filenames), encoding="utf-8"
@@ -193,9 +189,7 @@ def _unquote(raw: str) -> str:
 
 
 def _extract_string_let(source: str, name: str) -> str:
-    pattern = re.compile(
-        rf'#let\s+{re.escape(name)}\s*=\s*"((?:[^"\\]|\\.)*)"'
-    )
+    pattern = re.compile(rf'#let\s+{re.escape(name)}\s*=\s*"((?:[^"\\]|\\.)*)"')
     m = pattern.search(source)
     if not m:
         return ""
@@ -258,9 +252,7 @@ def _extract_kwarg_content(source: str, fn_name: str, kwarg: str) -> str:
     fn_match = re.search(rf"#{re.escape(fn_name)}\s*\(", source)
     if not fn_match:
         return ""
-    kw_match = re.search(
-        rf"\b{re.escape(kwarg)}\s*:\s*\[", source[fn_match.end():]
-    )
+    kw_match = re.search(rf"\b{re.escape(kwarg)}\s*:\s*\[", source[fn_match.end() :])
     if not kw_match:
         return ""
     start = fn_match.end() + kw_match.end()
@@ -279,7 +271,9 @@ def read_meeting(src_dir: Path) -> Meeting:
     strings/lists for anything not found).
     """
     src_dir = Path(src_dir)
-    meeting = Meeting(name="", number="", number_num="", date="", time="", academic_year="")
+    meeting = Meeting(
+        name="", number="", number_num="", date="", time="", academic_year=""
+    )
 
     constants_path = src_dir / "lib" / "constants.typ"
     if constants_path.exists():
@@ -324,4 +318,3 @@ def read_meeting(src_dir: Path) -> Meeting:
         )
 
     return meeting
-

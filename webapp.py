@@ -75,7 +75,7 @@ def _notify(message: str, *, type: str = "info", **kwargs) -> None:
     )
     if _status_label is not None:
         _status_label.text = message
-    kwargs.setdefault("position", "top-left")
+    kwargs.setdefault("position", "top")
     ui.notify(message, type=type, **kwargs)
 
 
