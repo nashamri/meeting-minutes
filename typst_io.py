@@ -168,10 +168,6 @@ def _find_matching_bracket(source: str, start: int) -> int | None:
                     break
                 i += 1
             continue
-        if c == "/" and i + 1 < n and source[i + 1] == "/":
-            while i < n and source[i] != "\n":
-                i += 1
-            continue
         if c == "[":
             depth += 1
         elif c == "]":

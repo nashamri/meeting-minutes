@@ -18,6 +18,19 @@ from main import (
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
+from typst_tables import (
+    TableCell,
+    TableSpec,
+    add_column,
+    add_row,
+    append_table_to_body,
+    find_tables,
+    new_table,
+    remove_column,
+    remove_row,
+    replace_table_in_body,
+    serialize_table,
+)
 
 _meeting = Meeting()
 _preview_urls: list[str] = []
@@ -443,12 +456,126 @@ def _articles_list(meeting: Meeting) -> None:
                 ui.input("الجهة ذات العلاقة").bind_value(article, "target").classes(
                     "w-full"
                 )
+
+                tables = find_tables(article.body)
+                with ui.expansion(
+                    f"الجداول ({len(tables)})", icon="grid_on"
+                ).classes("w-full"):
+                    if tables:
+                        for ti, t in enumerate(tables):
+                            rows = max(1, len(t.cells) // max(1, t.columns))
+                            with ui.row().classes(
+                                "w-full items-center justify-between gap-2"
+                            ):
+                                ui.label(
+                                    f"الجدول {ti + 1} — {rows}×{t.columns}"
+                                ).classes("text-sm")
+                                ui.button(
+                                    "تعديل",
+                                    icon="edit",
+                                    on_click=lambda a=article, idx=ti: _open_table_editor(
+                                        a, idx, _articles_list.refresh
+                                    ),
+                                ).props("flat dense")
+                    else:
+                        ui.label("لا يوجد جداول.").classes("text-sm text-gray-500")
+                    ui.button(
+                        "إضافة جدول",
+                        icon="add",
+                        on_click=lambda a=article: _open_table_editor(
+                            a, None, _articles_list.refresh
+                        ),
+                    ).props("dense unelevated").classes("mt-2")
+
                 with ui.row().classes("w-full justify-end"):
                     ui.button(
                         "حذف الموضوع",
                         icon="delete",
                         on_click=lambda a=article: _remove_article(meeting, a),
                     ).props("flat color=negative")
+
+
+def _open_table_editor(
+    article: Article, table_index: int | None, on_save
+) -> None:
+    if table_index is None:
+        spec = new_table(rows=2, columns=3)
+    else:
+        tables = find_tables(article.body)
+        if table_index >= len(tables):
+            _notify("الجدول غير موجود.", type="negative")
+            return
+        spec = tables[table_index]
+
+    with ui.dialog().props("maximized") as dialog, ui.card().classes(
+        "w-full h-full"
+    ):
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label(
+                "محرر الجدول" if table_index is None else f"تعديل الجدول {table_index + 1}"
+            ).classes("text-lg font-semibold")
+            ui.label(
+                "تلميح: المحتوى داخل الخلية يُلفّ بـ [ ] تلقائياً. التعابير الخام (مثل strong(\"..\")) تبقى كما هي."
+            ).classes("text-xs text-gray-500")
+
+        @ui.refreshable
+        def grid_view() -> None:
+            while spec.cells and len(spec.cells) % spec.columns != 0:
+                spec.cells.append(TableCell(content="", bracketed=True))
+            with ui.element("div").style(
+                f"display: grid; grid-template-columns: repeat({spec.columns}, minmax(0, 1fr)); "
+                "gap: 4px; width: 100%;"
+            ):
+                for i, cell in enumerate(spec.cells):
+                    ui.textarea(
+                        value=cell.content,
+                        on_change=lambda e, idx=i: setattr(
+                            spec.cells[idx], "content", e.value
+                        ),
+                    ).props("autogrow dense outlined").classes("w-full")
+
+        grid_view()
+
+        with ui.row().classes("w-full items-center gap-2 mt-3"):
+            ui.button(
+                "صف +",
+                icon="add",
+                on_click=lambda: (add_row(spec), grid_view.refresh()),
+            ).props("dense outline")
+            ui.button(
+                "صف -",
+                icon="remove",
+                on_click=lambda: (remove_row(spec), grid_view.refresh()),
+            ).props("dense outline")
+            ui.button(
+                "عمود +",
+                icon="add",
+                on_click=lambda: (add_column(spec), grid_view.refresh()),
+            ).props("dense outline")
+            ui.button(
+                "عمود -",
+                icon="remove",
+                on_click=lambda: (remove_column(spec), grid_view.refresh()),
+            ).props("dense outline")
+
+        def _save() -> None:
+            new_src = serialize_table(spec)
+            if table_index is None:
+                article.body = append_table_to_body(article.body, new_src)
+            else:
+                article.body = replace_table_in_body(article.body, spec, new_src)
+            on_save()
+            dialog.close()
+            _notify(
+                "تم إضافة الجدول." if table_index is None else "تم تحديث الجدول.",
+                type="positive",
+            )
+
+        with ui.row().classes("w-full justify-end gap-2 mt-3"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+            ui.button("حفظ", on_click=_save).props("unelevated color=primary")
+
+    dialog.open()
 
 
 def _add_article(meeting: Meeting) -> None:
