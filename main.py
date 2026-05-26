@@ -11,8 +11,8 @@ import platformdirs
 
 
 APP_NAME = "meetings-minutes"
-APP_DISPLAY_NAME = "Meetings Minutes"
-APP_TAGLINE = "Capture and summarize meeting minutes"
+APP_DISPLAY_NAME = "محاضر الاجتماعات"
+APP_TAGLINE = "تسجيل وتلخيص محاضر الاجتماعات"
 APP_REPO_URL = "https://github.com/you/meetings-minutes"
 
 CONFIG_DIR = Path(platformdirs.user_config_dir(APP_NAME))
