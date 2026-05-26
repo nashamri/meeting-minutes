@@ -3,6 +3,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+
 HERE = Path(SPECPATH)
 
 with (HERE / "pyproject.toml").open("rb") as f:
@@ -31,9 +33,10 @@ a = Analysis(
     # In CI, download the per-platform binary before running pyinstaller.
     binaries=[],
     datas=[
-        (str(HERE / "web"), "web"),
         (str(HERE / "assets"), "assets") if (HERE / "assets").exists() else None,
         (str(HERE / "pyproject.toml"), "."),
+        *collect_data_files("nicegui"),
+        *copy_metadata("nicegui"),
     ],
     hiddenimports=[],
     hookspath=[],

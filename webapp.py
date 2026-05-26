@@ -2,45 +2,74 @@ import os
 import sys
 import webbrowser
 
-import webview
+from nicegui import ui
 
-from main import get_app_info, load_theme, save_theme
-
-
-_RESOURCE_ROOT = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-HTML_PATH = os.path.join(_RESOURCE_ROOT, "web", "index.html")
+from main import APP_DISPLAY_NAME, get_app_info, load_theme, save_theme
 
 
-class Api:
-    """Methods exposed to the web view's JavaScript via `window.pywebview.api`."""
+def _open_about(info: dict) -> None:
+    with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[500px]"):
+        ui.label("About").classes("text-lg font-semibold")
+        rows = [
+            ("Name", info["name"]),
+            ("Version", info["version"]),
+            ("Tagline", info["tagline"]),
+            ("Python", info["python_version"]),
+            ("Platform", info["platform"]),
+            ("Config", info["config_path"]),
+        ]
+        for key, value in rows:
+            with ui.row().classes("w-full justify-between items-center gap-4"):
+                ui.label(key).classes("text-sm text-gray-500")
+                ui.label(value).classes("text-sm")
+        with ui.row().classes("w-full justify-between items-center gap-4"):
+            ui.label("Source").classes("text-sm text-gray-500")
+            link = ui.label(info["repo_url"]).classes(
+                "text-sm text-primary cursor-pointer underline"
+            )
+            link.on("click", lambda: webbrowser.open(info["repo_url"]))
+        with ui.row().classes("w-full justify-end mt-2"):
+            ui.button("Close", on_click=dialog.close).props("unelevated")
+    dialog.open()
 
-    def get_initial_state(self):
-        return {
-            "theme": load_theme(),
-        }
 
-    def set_theme(self, theme):
-        save_theme(theme)
-        return True
+@ui.page("/")
+def _index() -> None:
+    info = get_app_info()
+    dark = ui.dark_mode(value=(load_theme() == "dark"))
 
-    def get_app_info(self):
-        return get_app_info()
+    def toggle_theme() -> None:
+        new_value = not dark.value
+        dark.set_value(new_value)
+        save_theme("dark" if new_value else "light")
+        theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
 
-    def open_url(self, url):
-        if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://")):
-            webbrowser.open(url)
-            return True
-        return False
+    with ui.header().classes("items-center justify-between"):
+        ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
+        with ui.row().classes("items-center gap-1"):
+            theme_btn = (
+                ui.button(
+                    icon="light_mode" if dark.value else "dark_mode",
+                    on_click=toggle_theme,
+                )
+                .props("flat round dense color=white")
+                .tooltip("Toggle theme")
+            )
+            ui.button(icon="info", on_click=lambda: _open_about(info)).props(
+                "flat round dense color=white"
+            ).tooltip("About")
+
+    with ui.column().classes("p-5"):
+        ui.label("Welcome to Meetings Minutes.")
 
 
-def run_webapp():
-    api = Api()
-    webview.create_window(
-        "Meetings Minutes",
-        HTML_PATH,
-        js_api=api,
-        width=900,
-        height=700,
-        min_size=(600, 500),
+def run_webapp() -> None:
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("PYWEBVIEW_GUI", "qt")
+    ui.run(
+        native=True,
+        title=APP_DISPLAY_NAME,
+        window_size=(900, 700),
+        reload=False,
+        show=False,
     )
-    webview.start()
