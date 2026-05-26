@@ -1,14 +1,27 @@
+import asyncio
 import os
+import shutil
+import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
 from nicegui import app, ui
 
-from main import APP_DISPLAY_NAME, get_app_info, load_theme, save_theme
+from main import (
+    APP_DISPLAY_NAME,
+    get_app_info,
+    load_meetings_root,
+    load_theme,
+    save_theme,
+)
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
+from typst_io import read_meeting, write_meeting
 
 _meeting = Meeting()
+_pdf_url: str | None = None
+_tabs_ref = None
 
 _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 _FONTS_DIR = _RESOURCE_ROOT / "assets" / "fonts"
@@ -43,6 +56,137 @@ def _register_fonts() -> None:
 
 
 _register_fonts()
+
+
+_INVALID_PATH_CHARS = '/\\\n\r\t\0'
+
+
+def _sanitize_path_component(value: str) -> str:
+    return "".join("_" if c in _INVALID_PATH_CHARS else c for c in value.strip())
+
+
+async def _open_meeting() -> None:
+    import webview
+
+    win = app.native.main_window
+    if win is None:
+        ui.notify("ميزة الفتح متاحة في الوضع الأصلي فقط.", type="negative")
+        return
+    dialog_type = (
+        webview.FileDialog.FOLDER
+        if hasattr(webview, "FileDialog")
+        else webview.FOLDER_DIALOG
+    )
+    root = load_meetings_root()
+    paths = await win.create_file_dialog(
+        dialog_type=dialog_type,
+        directory=str(root) if root.exists() else "",
+    )
+    if not paths:
+        return
+    src = Path(paths[0])
+    try:
+        loaded = read_meeting(src)
+    except OSError as exc:
+        ui.notify(f"تعذّر فتح الاجتماع: {exc}", type="negative")
+        return
+    for attr in (
+        "name",
+        "number",
+        "number_num",
+        "date",
+        "time",
+        "academic_year",
+        "approval_text",
+        "invitees",
+        "closing_notes",
+    ):
+        setattr(_meeting, attr, getattr(loaded, attr))
+    _meeting.members = list(loaded.members)
+    _meeting.articles = list(loaded.articles)
+    _members_list.refresh()
+    _articles_list.refresh()
+    _signatures_preview.refresh()
+    ui.notify(f"فُتح: {src.name}", type="positive", timeout=4000)
+
+
+def _resolve_meeting_dest() -> Path | None:
+    missing = []
+    if not _meeting.name.strip():
+        missing.append("اسم المجلس")
+    if not _meeting.academic_year.strip():
+        missing.append("السنة الأكاديمية")
+    if not _meeting.number_num.strip():
+        missing.append("رقم الجلسة")
+    if missing:
+        ui.notify("الرجاء تعبئة: " + "، ".join(missing), type="negative")
+        return None
+    root = load_meetings_root()
+    return (
+        root
+        / _sanitize_path_component(_meeting.name)
+        / _sanitize_path_component(_meeting.academic_year)
+        / _sanitize_path_component(_meeting.number_num)
+    )
+
+
+def _save_current_meeting() -> Path | None:
+    dest = _resolve_meeting_dest()
+    if dest is None:
+        return None
+    try:
+        write_meeting(_meeting, dest)
+    except OSError as exc:
+        ui.notify(f"تعذّر الحفظ: {exc}", type="negative")
+        return None
+    ui.notify(f"حُفظ في: {dest}", type="positive", timeout=5000)
+    return dest
+
+
+async def _compile_meeting() -> None:
+    dest = _save_current_meeting()
+    if dest is None:
+        return
+    if not shutil.which("typst"):
+        ui.notify(
+            "لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative"
+        )
+        return
+    pdf_path = dest / "main.pdf"
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["typst", "compile", str(dest / "main.typ"), str(pdf_path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        ui.notify("انتهى وقت التصدير.", type="negative")
+        return
+    if result.returncode != 0:
+        msg = (result.stderr or result.stdout).strip()[:400] or "خطأ غير معروف"
+        ui.notify(f"فشل التصدير: {msg}", type="negative", multi_line=True)
+        return
+    global _pdf_url
+    base = app.add_static_file(local_file=pdf_path, max_cache_age=0)
+    _pdf_url = f"{base}?t={int(time.time())}"
+    _pdf_view.refresh()
+    if _tabs_ref is not None:
+        _tabs_ref.set_value("pdf")
+    ui.notify("تم التصدير.", type="positive")
+
+
+@ui.refreshable
+def _pdf_view() -> None:
+    if not _pdf_url:
+        ui.label("اضغط زر التصدير لإنشاء الملف وعرضه هنا.").classes(
+            "text-sm text-gray-500"
+        )
+        return
+    ui.html(
+        f'<iframe src="{_pdf_url}" style="width:100%; height:80vh; border:0;"></iframe>'
+    ).classes("w-full")
 
 
 def _open_about(info: dict) -> None:
@@ -85,6 +229,15 @@ def _index() -> None:
     with ui.header().classes("items-center justify-between"):
         ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
         with ui.row().classes("items-center gap-1"):
+            ui.button(icon="folder_open", on_click=_open_meeting).props(
+                "flat round dense color=white"
+            ).tooltip("فتح")
+            ui.button(icon="save", on_click=_save_current_meeting).props(
+                "flat round dense color=white"
+            ).tooltip("حفظ")
+            ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
+                "flat round dense color=white"
+            ).tooltip("تصدير PDF")
             theme_btn = (
                 ui.button(
                     icon="light_mode" if dark.value else "dark_mode",
@@ -97,10 +250,13 @@ def _index() -> None:
                 "flat round dense color=white"
             ).tooltip("حول")
 
+    global _tabs_ref
     with ui.tabs().classes("w-full") as tabs:
         front_tab = ui.tab("front", label="معلومات الاجتماع", icon="event")
         articles_tab = ui.tab("articles", label="الموضوعات", icon="article")
         end_tab = ui.tab("end", label="الاعتماد", icon="verified")
+        pdf_tab = ui.tab("pdf", label="معاينة", icon="picture_as_pdf")
+    _tabs_ref = tabs
 
     with ui.tab_panels(tabs, value=front_tab).classes("w-full"):
         with ui.tab_panel(front_tab):
@@ -109,6 +265,8 @@ def _index() -> None:
             _articles_panel(_meeting)
         with ui.tab_panel(end_tab):
             _end_matter_panel(_meeting)
+        with ui.tab_panel(pdf_tab):
+            _pdf_view()
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
@@ -249,7 +407,8 @@ def _end_matter_panel(meeting: Meeting) -> None:
         ui.separator()
 
         ui.label("ملاحظات الختام").classes("text-base font-semibold")
-        ui.textarea("المدعوين والإضافات والملحوظات").bind_value(
+        ui.input("المدعوين").bind_value(meeting, "invitees").classes("w-full")
+        ui.textarea("الإضافات والملحوظات").bind_value(
             meeting, "closing_notes"
         ).props("rows=4 autogrow").classes("w-full")
 

@@ -20,6 +20,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 VALID_THEMES = ("light", "dark")
 
+DEFAULT_MEETINGS_ROOT = Path(platformdirs.user_documents_dir()) / "محاضر الاجتماعات"
+
 
 def _load_config() -> dict:
     if not CONFIG_FILE.exists():
@@ -50,6 +52,17 @@ def save_theme(theme: str) -> None:
         raise ValueError(f"Invalid theme {theme!r}; expected one of {VALID_THEMES}")
     data = _load_config()
     data["theme"] = theme
+    _save_config(data)
+
+
+def load_meetings_root() -> Path:
+    raw = _load_config().get("meetings_root")
+    return Path(raw).expanduser() if isinstance(raw, str) and raw else DEFAULT_MEETINGS_ROOT
+
+
+def save_meetings_root(path: Path | str) -> None:
+    data = _load_config()
+    data["meetings_root"] = str(path)
     _save_config(data)
 
 

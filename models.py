@@ -33,4 +33,5 @@ class Meeting:
     members: list[Member] = field(default_factory=list)
     articles: list[Article] = field(default_factory=list)
     approval_text: str = "يوصي المجلس برفع هذا المحضر إلى سعادة رئيس الجامعة لاعتماده."
-    closing_notes: str = ""
+    invitees: str = "لا يوجد"
+    closing_notes: str = "الإضافات والملحوظات:"
