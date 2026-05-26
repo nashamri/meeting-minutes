@@ -20,7 +20,7 @@ from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
 
 _meeting = Meeting()
-_pdf_url: str | None = None
+_preview_urls: list[str] = []
 _tabs_ref = None
 
 _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -152,41 +152,67 @@ async def _compile_meeting() -> None:
             "لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative"
         )
         return
+    main_typ = dest / "main.typ"
     pdf_path = dest / "main.pdf"
+    preview_dir = dest / "_preview"
+    if preview_dir.exists():
+        for p in preview_dir.glob("page-*.svg"):
+            p.unlink()
+    preview_dir.mkdir(exist_ok=True)
+    svg_template = preview_dir / "page-{0p}.svg"
+
     try:
-        result = await asyncio.to_thread(
+        pdf_result = await asyncio.to_thread(
             subprocess.run,
-            ["typst", "compile", str(dest / "main.typ"), str(pdf_path)],
+            ["typst", "compile", str(main_typ), str(pdf_path)],
             capture_output=True,
             text=True,
             timeout=60,
         )
+        if pdf_result.returncode == 0:
+            svg_result = await asyncio.to_thread(
+                subprocess.run,
+                ["typst", "compile", str(main_typ), str(svg_template), "--format", "svg"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        else:
+            svg_result = None
     except subprocess.TimeoutExpired:
         ui.notify("انتهى وقت التصدير.", type="negative")
         return
-    if result.returncode != 0:
-        msg = (result.stderr or result.stdout).strip()[:400] or "خطأ غير معروف"
+
+    if pdf_result.returncode != 0:
+        msg = (pdf_result.stderr or pdf_result.stdout).strip()[:400] or "خطأ غير معروف"
         ui.notify(f"فشل التصدير: {msg}", type="negative", multi_line=True)
         return
-    global _pdf_url
-    base = app.add_static_file(local_file=pdf_path, max_cache_age=0)
-    _pdf_url = f"{base}?t={int(time.time())}"
+
+    global _preview_urls
+    if svg_result is not None and svg_result.returncode == 0:
+        ts = int(time.time())
+        _preview_urls = [
+            f"{app.add_static_file(local_file=p, max_cache_age=0)}?t={ts}"
+            for p in sorted(preview_dir.glob("page-*.svg"))
+        ]
+    else:
+        _preview_urls = []
     _pdf_view.refresh()
     if _tabs_ref is not None:
         _tabs_ref.set_value("pdf")
-    ui.notify("تم التصدير.", type="positive")
+    ui.notify(f"تم التصدير: {pdf_path}", type="positive", timeout=5000)
 
 
 @ui.refreshable
 def _pdf_view() -> None:
-    if not _pdf_url:
+    if not _preview_urls:
         ui.label("اضغط زر التصدير لإنشاء الملف وعرضه هنا.").classes(
             "text-sm text-gray-500"
         )
         return
-    ui.html(
-        f'<iframe src="{_pdf_url}" style="width:100%; height:80vh; border:0;"></iframe>'
-    ).classes("w-full")
+    with ui.column().classes("w-full items-center gap-3 p-2"):
+        for url in _preview_urls:
+            ui.image(url).classes("max-w-3xl w-full border rounded shadow-sm")
 
 
 def _open_about(info: dict) -> None:
