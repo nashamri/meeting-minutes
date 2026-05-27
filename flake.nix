@@ -94,7 +94,7 @@
           );
 
           app = stdenv.mkDerivation {
-            pname = "meetings-minutes";
+            pname = "meeting-minutes";
             inherit version;
             src = ./.;
 
@@ -105,15 +105,15 @@
             installPhase = ''
               runHook preInstall
 
-              mkdir -p $out/share/meetings-minutes $out/bin
+              mkdir -p $out/share/meeting-minutes $out/bin
               cp main.py webapp.py gui_main.py models.py typst_io.py pyproject.toml \
-                $out/share/meetings-minutes/
+                $out/share/meeting-minutes/
               if [ -d assets ]; then
-                cp -r assets $out/share/meetings-minutes/
+                cp -r assets $out/share/meeting-minutes/
               fi
 
-              makeWrapper ${pythonEnv}/bin/python $out/bin/meetings-minutes \
-                --add-flags "$out/share/meetings-minutes/main.py" \
+              makeWrapper ${pythonEnv}/bin/python $out/bin/meeting-minutes \
+                --add-flags "$out/share/meeting-minutes/main.py" \
                 --prefix PATH : ${lib.makeBinPath [ pkgs.typst ]}
 
               runHook postInstall
@@ -121,15 +121,15 @@
 
             meta = {
               description = "Capture and summarize meeting minutes";
-              homepage = "https://github.com/you/meetings-minutes";
-              mainProgram = "meetings-minutes";
+              homepage = "https://github.com/nashamri/meeting-minutes";
+              mainProgram = "meeting-minutes";
               platforms = lib.platforms.unix;
             };
           };
         in
         {
           packages.default = app;
-          packages.meetings-minutes = app;
+          packages.meeting-minutes = app;
 
           devShells.default = pkgs.mkShell {
             packages = [ pkgs.uv pkgs.typst ];

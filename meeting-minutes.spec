@@ -66,9 +66,9 @@ exe = EXE(
 if sys.platform == "darwin":
     app = BUNDLE(
         exe,
-        name="Meetings Minutes.app",
+        name="Meeting Minutes.app",
         icon=ICON if Path(ICON).exists() else None,
-        bundle_identifier="com.you.meetings-minutes",
+        bundle_identifier="com.nashamri.meeting-minutes",
         version=APP_VERSION,
         info_plist={
             "NSHighResolutionCapable": True,

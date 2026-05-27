@@ -131,7 +131,10 @@ def _register_fonts() -> None:
         'body, .q-field, .q-btn, .q-dialog, .q-tooltip, input, textarea, button '
         '{ font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; }'
     )
-    ui.add_head_html(f"<style>{faces} {body_rule}</style>", shared=True)
+    resize_rule = ".q-textarea textarea.q-field__native { resize: vertical; }"
+    ui.add_head_html(
+        f"<style>{faces} {body_rule} {resize_rule}</style>", shared=True
+    )
 
 
 _register_fonts()

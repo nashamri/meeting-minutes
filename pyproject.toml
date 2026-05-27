@@ -1,5 +1,5 @@
 [project]
-name = "meetings-minutes"
+name = "meeting-minutes"
 version = "0.1.0"
 description = "Capture and summarize meeting minutes"
 requires-python = ">=3.12"
@@ -16,4 +16,4 @@ linux = [
 ]
 
 [project.scripts]
-meetings-minutes = "main:main"
+meeting-minutes = "main:main"

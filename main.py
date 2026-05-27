@@ -10,10 +10,10 @@ from pathlib import Path
 import platformdirs
 
 
-APP_NAME = "meetings-minutes"
+APP_NAME = "meeting-minutes"
 APP_DISPLAY_NAME = "محاضر الاجتماعات"
 APP_TAGLINE = "تسجيل وتلخيص محاضر الاجتماعات"
-APP_REPO_URL = "https://github.com/you/meetings-minutes"
+APP_REPO_URL = "https://github.com/nashamri/meeting-minutes"
 
 CONFIG_DIR = Path(platformdirs.user_config_dir(APP_NAME))
 CONFIG_FILE = CONFIG_DIR / "config.json"
