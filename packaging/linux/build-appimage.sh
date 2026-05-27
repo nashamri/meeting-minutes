@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_NAME="meetings-minutes"
+PROJECT_NAME="meeting-minutes"
 APPIMAGETOOL="${APPIMAGETOOL:-appimagetool}"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

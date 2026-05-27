@@ -26,16 +26,16 @@ jobs:
           uv pip install pyinstaller
 
       - name: Build
-        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+        run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm
 
       - name: Verify artifact exists
-        run: if not exist dist\meetings-minutes.exe (echo Build missing && exit /b 1)
+        run: if not exist dist\meeting-minutes.exe (echo Build missing && exit /b 1)
         shell: cmd
 
       - uses: actions/upload-artifact@v4
         with:
-          name: meetings-minutes-windows
-          path: dist/meetings-minutes.exe
+          name: meeting-minutes-windows
+          path: dist/meeting-minutes.exe
           if-no-files-found: error
 
   # --- macOS: .app bundle, signed ad-hoc, packaged into a .dmg ---------------
@@ -66,7 +66,7 @@ jobs:
           uv pip install pyinstaller
 
       - name: Build
-        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+        run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm
 
       # Ad-hoc signing is mandatory on Apple Silicon for the binary to launch
       # at all, and harmless on Intel. Real notarization needs an Apple
@@ -74,20 +74,20 @@ jobs:
       # click → Open the first time, or run `xattr -cr` to clear quarantine.
       - name: Ad-hoc codesign
         run: |
-          codesign --force --deep --sign - "dist/Meetings Minutes.app"
-          codesign --verify --verbose "dist/Meetings Minutes.app"
+          codesign --force --deep --sign - "dist/Meeting Minutes.app"
+          codesign --verify --verbose "dist/Meeting Minutes.app"
 
       - name: Build DMG
         run: |
-          hdiutil create -volname "Meetings Minutes" \
-            -srcfolder "dist/Meetings Minutes.app" \
+          hdiutil create -volname "Meeting Minutes" \
+            -srcfolder "dist/Meeting Minutes.app" \
             -ov -format UDZO \
-            "dist/meetings-minutes-${{ matrix.arch }}.dmg"
+            "dist/meeting-minutes-${{ matrix.arch }}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: meetings-minutes-macos-${{ matrix.arch }}
-          path: dist/meetings-minutes-${{ matrix.arch }}.dmg
+          name: meeting-minutes-macos-${{ matrix.arch }}
+          path: dist/meeting-minutes-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   # --- Linux: PyInstaller binary wrapped into an AppImage --------------------
@@ -114,7 +114,7 @@ jobs:
           uv pip install pyinstaller
 
       - name: Build
-        run: uv run pyinstaller meetings-minutes.spec --clean --noconfirm
+        run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm
 
       - name: Download appimagetool
         run: |
@@ -129,8 +129,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: meetings-minutes-linux
-          path: dist/meetings-minutes-x86_64.AppImage
+          name: meeting-minutes-linux
+          path: dist/meeting-minutes-x86_64.AppImage
           if-no-files-found: error
 
   # --- Release: only on tag pushes, after all builds succeed -----------------
