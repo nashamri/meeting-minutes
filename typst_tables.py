@@ -196,10 +196,56 @@ def find_tables(body: str) -> list[TableSpec]:
 
 def _update_columns_in_prelude(spec: TableSpec) -> None:
     for i, arg in enumerate(spec.prelude_args):
-        if arg.lstrip().startswith("columns:"):
+        if not arg.lstrip().startswith("columns:"):
+            continue
+        value = arg.split(":", 1)[1].strip()
+        if value.startswith("(") and value.endswith(")"):
+            items = _split_top_level(value[1:-1])
+            while len(items) < spec.columns:
+                items.append("auto")
+            while len(items) > spec.columns:
+                items.pop()
+            spec.prelude_args[i] = f"columns: ({', '.join(items)})"
+        else:
             spec.prelude_args[i] = f"columns: {spec.columns}"
-            return
+        return
     spec.prelude_args.insert(0, f"columns: {spec.columns}")
+
+
+_CSS_LENGTH_RE = re.compile(r"^\d+(?:\.\d+)?(fr|cm|mm|pt|em|px|in|%)$")
+
+
+def _typst_col_to_css(item: str) -> str:
+    item = item.strip()
+    if item == "auto":
+        # Cap at ~10em so a wide-content auto column can't starve fr columns.
+        # Short content stays content-sized; long content wraps inside the cell.
+        return "fit-content(10em)"
+    m = _CSS_LENGTH_RE.match(item)
+    if m:
+        if m.group(1) == "fr":
+            return f"minmax(0, {item})"
+        return item
+    return "minmax(0, 1fr)"
+
+
+def columns_to_css(prelude_args: list[str], cols: int) -> str:
+    """Translate the columns prelude into a CSS grid-template-columns value.
+
+    Tuple form (e.g. `columns: (auto, 1fr, 2cm)`) maps entry-by-entry so the
+    UI grid mirrors the document's column proportions. Integer form or any
+    spec that doesn't parse cleanly falls back to equal-width tracks.
+    """
+    spec = next(
+        (a.split(":", 1)[1].strip() for a in prelude_args
+         if a.lstrip().startswith("columns:")),
+        None,
+    )
+    if spec and spec.startswith("(") and spec.endswith(")"):
+        items = _split_top_level(spec[1:-1])
+        if len(items) == cols:
+            return " ".join(_typst_col_to_css(it) for it in items)
+    return f"repeat({cols}, minmax(0, 1fr))"
 
 
 def add_row(spec: TableSpec) -> None:

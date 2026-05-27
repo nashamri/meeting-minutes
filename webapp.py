@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from typst_tables import (
     add_column,
     add_row,
     append_table_to_body,
+    columns_to_css,
     find_tables,
     new_table,
     remove_column,
@@ -38,6 +40,27 @@ _tabs_ref = None
 _status_label = None
 _status_history: list[dict] = []
 _drag_state: dict = {"from": None}
+
+
+_DATE_DISPLAY_RE = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})")
+
+
+def _date_from_display(s: str) -> str:
+    m = _DATE_DISPLAY_RE.search(s or "")
+    if not m:
+        return ""
+    d, mo, y = m.groups()
+    return f"{y}-{int(mo):02d}-{int(d):02d}"
+
+
+def _date_to_display(iso: str) -> str:
+    if not iso:
+        return ""
+    parts = iso.split("-")
+    if len(parts) != 3:
+        return ""
+    y, mo, d = parts
+    return f"{int(d)} / {int(mo)} / {y} م"
 
 
 def _on_article_drop(to_idx: int) -> None:
@@ -132,8 +155,17 @@ def _register_fonts() -> None:
         '{ font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; }'
     )
     resize_rule = ".q-textarea textarea.q-field__native { resize: vertical; }"
+    table_cell_rule = (
+        ".tbl-cell, .tbl-cell * { min-width: 0 !important; box-sizing: border-box; } "
+        ".tbl-cell .q-field, "
+        ".tbl-cell .q-field__inner, "
+        ".tbl-cell .q-field__control, "
+        ".tbl-cell .q-field__native "
+        "{ width: 100% !important; max-width: 100% !important; min-width: 0 !important; }"
+    )
     ui.add_head_html(
-        f"<style>{faces} {body_rule} {resize_rule}</style>", shared=True
+        f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule}</style>",
+        shared=True,
     )
 
 
@@ -202,6 +234,9 @@ def _resolve_meeting_dest() -> Path | None:
         missing.append("رقم الجلسة")
     if missing:
         _notify("الرجاء تعبئة: " + "، ".join(missing), type="negative")
+        return None
+    if not _meeting.number_num.strip().isdigit():
+        _notify("رقم الجلسة يجب أن يكون عدداً صحيحاً.", type="negative")
         return None
     root = load_meetings_root()
     return (
@@ -361,7 +396,7 @@ def _index() -> None:
     global _tabs_ref
     with ui.tabs().classes("w-full") as tabs:
         front_tab = ui.tab("front", label="معلومات الاجتماع", icon="event")
-        articles_tab = ui.tab("articles", label="الموضوعات", icon="article")
+        articles_tab = ui.tab("articles", label="المواضيع", icon="article")
         end_tab = ui.tab("end", label="الاعتماد", icon="verified")
         pdf_tab = ui.tab("pdf", label="معاينة", icon="picture_as_pdf")
     _tabs_ref = tabs
@@ -391,12 +426,28 @@ def _front_matter_panel(meeting: Meeting) -> None:
             ui.input("الجلسة (نصاً)", placeholder="السادسة عشرة").bind_value(
                 meeting, "number"
             ).classes("w-full")
-            ui.input("الجلسة (رقماً)", placeholder="16").bind_value(
-                meeting, "number_num"
-            ).classes("w-full")
-            ui.input("التاريخ", placeholder="20 / 5 / 2026 م").bind_value(
-                meeting, "date"
-            ).classes("w-full")
+            ui.input(
+                "الجلسة (رقماً)",
+                placeholder="16",
+                validation={
+                    "يجب أن يكون عدداً صحيحاً": lambda v: not v or v.strip().isdigit()
+                },
+            ).bind_value(meeting, "number_num").classes("w-full")
+            with ui.input(
+                "التاريخ", placeholder="20 / 5 / 2026 م"
+            ).bind_value(meeting, "date").classes("w-full") as date_input:
+                with date_input.add_slot("append"):
+                    date_icon = ui.icon("event").classes("cursor-pointer")
+                    with ui.menu() as date_menu:
+                        ui.date(
+                            value=_date_from_display(meeting.date),
+                            on_change=lambda e: setattr(
+                                meeting, "date", _date_to_display(e.value)
+                            )
+                            if e.value
+                            else None,
+                        )
+                    date_icon.on("click", lambda: date_menu.open())
             ui.input("الوقت", placeholder="الحادية عشرة صباحاً").bind_value(
                 meeting, "time"
             ).classes("w-full")
@@ -452,7 +503,7 @@ def _remove_member(meeting: Meeting, member: Member) -> None:
 def _articles_panel(meeting: Meeting) -> None:
     with ui.column().classes("w-full gap-4 p-4"):
         with ui.row().classes("w-full items-center justify-between"):
-            ui.label("الموضوعات").classes("text-base font-semibold")
+            ui.label("المواضيع").classes("text-base font-semibold")
             ui.button(icon="add", on_click=lambda: _add_article(meeting)).props(
                 "dense unelevated"
             ).tooltip("إضافة موضوع")
@@ -462,7 +513,7 @@ def _articles_panel(meeting: Meeting) -> None:
 @ui.refreshable
 def _articles_list(meeting: Meeting) -> None:
     if not meeting.articles:
-        ui.label("لا توجد موضوعات بعد. اضغط + لإضافة موضوع.").classes(
+        ui.label("لا توجد مواضيع بعد. اضغط + لإضافة موضوع.").classes(
             "text-sm text-gray-500"
         )
         return
@@ -580,8 +631,9 @@ def _open_table_editor(
         def grid_view() -> None:
             while spec.cells and len(spec.cells) % spec.columns != 0:
                 spec.cells.append(TableCell(content="", bracketed=True))
+            template = columns_to_css(spec.prelude_args, spec.columns)
             with ui.element("div").style(
-                f"display: grid; grid-template-columns: repeat({spec.columns}, minmax(0, 1fr)); "
+                f"display: grid; grid-template-columns: {template}; "
                 "gap: 4px; width: 100%;"
             ):
                 for i, cell in enumerate(spec.cells):
@@ -590,7 +642,7 @@ def _open_table_editor(
                         on_change=lambda e, idx=i: setattr(
                             spec.cells[idx], "content", e.value
                         ),
-                    ).props("autogrow dense outlined").classes("w-full")
+                    ).props("autogrow dense outlined").classes("w-full tbl-cell")
 
         grid_view()
 

@@ -24,7 +24,7 @@ class Article:
 
 @dataclass
 class Meeting:
-    name: str = "المجلس العلمي"
+    name: str = ""
     number: str = ""
     number_num: str = ""
     date: str = ""
