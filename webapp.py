@@ -161,7 +161,8 @@ def _register_fonts() -> None:
         ".tbl-cell .q-field__inner, "
         ".tbl-cell .q-field__control, "
         ".tbl-cell .q-field__native "
-        "{ width: 100% !important; max-width: 100% !important; min-width: 0 !important; }"
+        "{ width: 100% !important; max-width: 100% !important; min-width: 0 !important; } "
+        ".tbl-cell .q-field__native { unicode-bidi: plaintext; text-align: start; }"
     )
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule}</style>",
@@ -642,7 +643,9 @@ def _open_table_editor(
                         on_change=lambda e, idx=i: setattr(
                             spec.cells[idx], "content", e.value
                         ),
-                    ).props("autogrow dense outlined").classes("w-full tbl-cell")
+                    ).props('autogrow dense outlined dir="auto"').classes(
+                        "w-full tbl-cell"
+                    )
 
         grid_view()
 
