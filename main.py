@@ -66,6 +66,38 @@ def save_meetings_root(path: Path | str) -> None:
     _save_config(data)
 
 
+RECENT_MAX = 10
+
+
+def load_recent_meetings() -> list[Path]:
+    raw = _load_config().get("recent_meetings", [])
+    if not isinstance(raw, list):
+        return []
+    return [Path(r) for r in raw if isinstance(r, str) and r]
+
+
+def save_recent_meetings(paths: list[Path | str]) -> None:
+    data = _load_config()
+    data["recent_meetings"] = [str(p) for p in paths]
+    _save_config(data)
+
+
+def add_recent_meeting(path: Path | str) -> None:
+    path = Path(path)
+    paths = [p for p in load_recent_meetings() if p != path]
+    paths.insert(0, path)
+    save_recent_meetings(paths[:RECENT_MAX])
+
+
+def remove_recent_meeting(path: Path | str) -> None:
+    path = Path(path)
+    save_recent_meetings([p for p in load_recent_meetings() if p != path])
+
+
+def clear_recent_meetings() -> None:
+    save_recent_meetings([])
+
+
 def _read_version() -> str:
     try:
         return importlib.metadata.version(APP_NAME)

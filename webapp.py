@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 import re
 import shutil
@@ -12,9 +13,13 @@ from nicegui import app, ui
 
 from main import (
     APP_DISPLAY_NAME,
+    add_recent_meeting,
+    clear_recent_meetings,
     get_app_info,
     load_meetings_root,
+    load_recent_meetings,
     load_theme,
+    remove_recent_meeting,
     save_theme,
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
@@ -40,6 +45,56 @@ _tabs_ref = None
 _status_label = None
 _status_history: list[dict] = []
 _drag_state: dict = {"from": None}
+_save_btn = None
+_front_tab = None
+_articles_tab = None
+_end_tab = None
+_pdf_tab = None
+_recent_menu_refresh = None
+_saved_fingerprint: str | None = None
+
+
+def _meeting_fingerprint(m: Meeting) -> str:
+    parts: list[str] = [
+        m.name, m.number, m.number_num, m.date, m.time, m.academic_year,
+        m.approval_text, m.invitees, m.closing_notes,
+    ]
+    for mem in m.members:
+        parts.extend([mem.name, mem.role, mem.attendance, mem.excuse])
+    for art in m.articles:
+        parts.extend([art.title, art.body, art.decision, art.legal_refs, art.target])
+    return hashlib.md5("\x00".join(parts).encode("utf-8")).hexdigest()
+
+
+def _mark_clean() -> None:
+    global _saved_fingerprint
+    _saved_fingerprint = _meeting_fingerprint(_meeting)
+
+
+def _is_dirty() -> bool:
+    return (
+        _saved_fingerprint is not None
+        and _meeting_fingerprint(_meeting) != _saved_fingerprint
+    )
+
+
+def _refresh_periodic_state() -> None:
+    if _save_btn is not None:
+        target = "warning" if _is_dirty() else "white"
+        if _save_btn._props.get("color") != target:
+            _save_btn._props["color"] = target
+            _save_btn.update()
+    if _articles_tab is not None:
+        n = len(_meeting.articles)
+        label = f"المواضيع ({n})" if n else "المواضيع"
+        if _articles_tab._props.get("label") != label:
+            _articles_tab._props["label"] = label
+            _articles_tab.update()
+
+
+def _meeting_label_for_path(p: Path) -> str:
+    parts = p.parts
+    return " / ".join(parts[-3:]) if len(parts) >= 3 else p.name
 
 
 _DATE_DISPLAY_RE = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})")
@@ -180,6 +235,33 @@ def _sanitize_path_component(value: str) -> str:
     return "".join("_" if c in _INVALID_PATH_CHARS else c for c in value.strip())
 
 
+def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
+    for attr in (
+        "name", "number", "number_num", "date", "time", "academic_year",
+        "approval_text", "invitees", "closing_notes",
+    ):
+        setattr(_meeting, attr, getattr(loaded, attr))
+    _meeting.members = list(loaded.members)
+    _meeting.articles = list(loaded.articles)
+    _members_list.refresh()
+    _articles_list.refresh()
+    _signatures_preview.refresh()
+    add_recent_meeting(src)
+    if _recent_menu_refresh is not None:
+        _recent_menu_refresh()
+    _mark_clean()
+    _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
+
+
+def _open_meeting_at(src: Path) -> None:
+    try:
+        loaded = read_meeting(src)
+    except OSError as exc:
+        _notify(f"تعذّر فتح الاجتماع: {exc}", type="negative")
+        return
+    _apply_loaded_meeting(loaded, src)
+
+
 async def _open_meeting() -> None:
     import webview
 
@@ -205,24 +287,7 @@ async def _open_meeting() -> None:
     except OSError as exc:
         _notify(f"تعذّر فتح الاجتماع: {exc}", type="negative")
         return
-    for attr in (
-        "name",
-        "number",
-        "number_num",
-        "date",
-        "time",
-        "academic_year",
-        "approval_text",
-        "invitees",
-        "closing_notes",
-    ):
-        setattr(_meeting, attr, getattr(loaded, attr))
-    _meeting.members = list(loaded.members)
-    _meeting.articles = list(loaded.articles)
-    _members_list.refresh()
-    _articles_list.refresh()
-    _signatures_preview.refresh()
-    _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
+    _apply_loaded_meeting(loaded, src)
 
 
 def _resolve_meeting_dest() -> Path | None:
@@ -257,6 +322,10 @@ def _save_current_meeting() -> Path | None:
     except OSError as exc:
         _notify(f"تعذّر الحفظ: {exc}", type="negative")
         return None
+    add_recent_meeting(dest)
+    if _recent_menu_refresh is not None:
+        _recent_menu_refresh()
+    _mark_clean()
     _notify(f"حُفظ في: {dest}", type="positive", timeout=5000)
     return dest
 
@@ -333,6 +402,36 @@ def _pdf_view() -> None:
             ui.image(url).classes("max-w-3xl w-full border rounded shadow-sm")
 
 
+_SHORTCUTS = [
+    ("حفظ", ["Ctrl", "S"]),
+    ("فتح", ["Ctrl", "O"]),
+    ("تصدير PDF", ["Ctrl", "E"]),
+]
+
+
+def _kbd_html(keys: list[str]) -> str:
+    style = (
+        "border:1px solid var(--q-primary,#999); border-radius:4px;"
+        "padding:1px 6px; font-family:monospace; font-size:0.85em;"
+        "background:rgba(0,0,0,0.04);"
+    )
+    return ' <span style="opacity:0.5;">+</span> '.join(
+        f'<kbd style="{style}">{k}</kbd>' for k in keys
+    )
+
+
+def _show_shortcuts() -> None:
+    with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[480px]"):
+        ui.label("اختصارات لوحة المفاتيح").classes("text-lg font-semibold")
+        for action, keys in _SHORTCUTS:
+            with ui.row().classes("w-full justify-between items-center gap-4"):
+                ui.label(action).classes("text-sm")
+                ui.html(_kbd_html(keys))
+        with ui.row().classes("w-full justify-end mt-2"):
+            ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+    dialog.open()
+
+
 def _open_about(info: dict) -> None:
     with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[500px]"):
         ui.label("حول").classes("text-lg font-semibold")
@@ -354,7 +453,12 @@ def _open_about(info: dict) -> None:
                 "text-sm text-primary cursor-pointer underline"
             )
             link.on("click", lambda: webbrowser.open(info["repo_url"]))
-        with ui.row().classes("w-full justify-end mt-2"):
+        with ui.row().classes("w-full justify-end mt-2 gap-2"):
+            ui.button(
+                "اختصارات لوحة المفاتيح",
+                icon="keyboard",
+                on_click=_show_shortcuts,
+            ).props("flat")
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
     dialog.open()
 
@@ -376,7 +480,51 @@ def _index() -> None:
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
-            ui.button(icon="save", on_click=_save_current_meeting).props(
+            recent_btn = ui.button(icon="history").props(
+                "flat round dense color=white"
+            ).tooltip("الاجتماعات الأخيرة")
+            with recent_btn:
+                with ui.menu():
+                    @ui.refreshable
+                    def _recent_items() -> None:
+                        recents = load_recent_meetings()
+                        if not recents:
+                            ui.label("لا توجد اجتماعات سابقة").classes(
+                                "p-2 text-sm text-gray-500"
+                            )
+                            return
+                        for p in recents:
+                            with ui.menu_item(
+                                on_click=lambda x=p: _open_meeting_at(x)
+                            ):
+                                with ui.row().classes(
+                                    "w-full items-center justify-between gap-3 min-w-[280px]"
+                                ):
+                                    ui.label(_meeting_label_for_path(p)).classes(
+                                        "flex-1"
+                                    )
+                                    ui.button(icon="close").props(
+                                        "flat round dense size=sm color=negative"
+                                    ).tooltip("إزالة من القائمة").on(
+                                        "click.stop",
+                                        lambda e, x=p: (
+                                            remove_recent_meeting(x),
+                                            _recent_items.refresh(),
+                                        ),
+                                    )
+                        ui.separator()
+                        ui.menu_item(
+                            "نسيان كل الاجتماعات",
+                            on_click=lambda: (
+                                clear_recent_meetings(),
+                                _recent_items.refresh(),
+                            ),
+                        ).classes("text-negative")
+                    _recent_items()
+            global _recent_menu_refresh
+            _recent_menu_refresh = _recent_items.refresh
+            global _save_btn
+            _save_btn = ui.button(icon="save", on_click=_save_current_meeting).props(
                 "flat round dense color=white"
             ).tooltip("حفظ")
             ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
@@ -394,13 +542,14 @@ def _index() -> None:
                 "flat round dense color=white"
             ).tooltip("حول")
 
-    global _tabs_ref
+    global _tabs_ref, _front_tab, _articles_tab, _end_tab, _pdf_tab
     with ui.tabs().classes("w-full") as tabs:
         front_tab = ui.tab("front", label="معلومات الاجتماع", icon="event")
         articles_tab = ui.tab("articles", label="المواضيع", icon="article")
         end_tab = ui.tab("end", label="الاعتماد", icon="verified")
         pdf_tab = ui.tab("pdf", label="معاينة", icon="picture_as_pdf")
     _tabs_ref = tabs
+    _front_tab, _articles_tab, _end_tab, _pdf_tab = front_tab, articles_tab, end_tab, pdf_tab
 
     with ui.tab_panels(tabs, value=front_tab).classes("w-full"):
         with ui.tab_panel(front_tab):
@@ -417,6 +566,24 @@ def _index() -> None:
         ui.icon("history").classes("text-sm")
         _status_label = ui.label("جاهز").classes("text-sm")
     footer.on("click", _show_history)
+
+    _mark_clean()
+
+    async def _handle_key(e) -> None:
+        if not e.action.keydown:
+            return
+        if not e.modifiers.ctrl:
+            return
+        k = (e.key.name or "").lower()
+        if k == "s":
+            _save_current_meeting()
+        elif k == "o":
+            await _open_meeting()
+        elif k == "e":
+            await _compile_meeting()
+
+    ui.keyboard(on_key=_handle_key)
+    ui.timer(0.7, _refresh_periodic_state)
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
