@@ -103,12 +103,24 @@ jobs:
           codesign --force --deep --sign - "dist/Meeting Minutes.app"
           codesign --verify --verbose "dist/Meeting Minutes.app"
 
+      # hdiutil's auto-sizing of the sparse intermediate image undercounts
+      # what PyInstaller's onefile .app bundle actually needs (the embedded
+      # archive inside the bootloader binary throws off its estimator), and
+      # the volume fills before the copy finishes. Size it from the real
+      # .app footprint with a 2× + 100 MB headroom, build an R/W image
+      # first, then convert to compressed UDZO.
       - name: Build DMG
         run: |
-          hdiutil create -volname "Meeting Minutes" \
+          APP_SIZE_MB=$(du -sm "dist/Meeting Minutes.app" | cut -f1)
+          DMG_SIZE_MB=$((APP_SIZE_MB * 2 + 100))
+          echo ".app is ${APP_SIZE_MB} MB; sizing DMG at ${DMG_SIZE_MB} MB"
+          hdiutil create -size ${DMG_SIZE_MB}m -fs HFS+ \
+            -volname "Meeting Minutes" \
             -srcfolder "dist/Meeting Minutes.app" \
-            -ov -format UDZO \
-            "dist/meeting-minutes-${{ matrix.arch }}.dmg"
+            -ov -format UDRW "dist/temp.dmg"
+          hdiutil convert "dist/temp.dmg" -format UDZO -ov \
+            -o "dist/meeting-minutes-${{ matrix.arch }}.dmg"
+          rm "dist/temp.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
