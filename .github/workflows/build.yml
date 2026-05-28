@@ -59,6 +59,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # macos-14 / macos-15-intel runners ship with Xcode (~30 GB) plus a few
+      # iOS/CoreSimulator caches. We need none of it for a Python+typst bundle,
+      # and the leftover space gets tight once hdiutil stages the DMG's
+      # intermediate image. Free it up front; `|| true` keeps the step green
+      # if a path drifts in a future image.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /Applications/Xcode*.app || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator || true
+          sudo rm -rf /Library/Developer/CoreSimulator || true
+          sudo rm -rf ~/Library/Developer/Xcode || true
+          df -h /
+
       - name: Set up uv + Python
         uses: astral-sh/setup-uv@v4
         with:
