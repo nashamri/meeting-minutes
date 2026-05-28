@@ -51,7 +51,26 @@ _articles_tab = None
 _end_tab = None
 _pdf_tab = None
 _recent_menu_refresh = None
+_recent_menu = None
 _saved_fingerprint: str | None = None
+_icon_url: str | None = None
+
+
+def _get_icon_url() -> str | None:
+    """Expose assets/meeting-minutes.png as a static URL the UI can <img> at.
+
+    Resolves under _MEIPASS in a PyInstaller bundle, the source tree
+    otherwise. Registered once and cached on the module.
+    """
+    global _icon_url
+    if _icon_url is not None:
+        return _icon_url
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    icon_path = base / "assets" / "meeting-minutes.png"
+    if not icon_path.is_file():
+        return None
+    _icon_url = app.add_static_file(local_file=icon_path)
+    return _icon_url
 
 
 def _meeting_fingerprint(m: Meeting) -> str:
@@ -435,6 +454,7 @@ def _pdf_view() -> None:
 _SHORTCUTS = [
     ("حفظ", ["Ctrl", "S"]),
     ("فتح", ["Ctrl", "O"]),
+    ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
     ("تصدير PDF", ["Ctrl", "E"]),
 ]
 
@@ -464,6 +484,10 @@ def _show_shortcuts() -> None:
 
 def _open_about(info: dict) -> None:
     with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[500px]"):
+        icon_url = _get_icon_url()
+        if icon_url:
+            with ui.row().classes("w-full justify-center"):
+                ui.image(icon_url).classes("w-24 h-24")
         ui.label("حول").classes("text-lg font-semibold")
         rows = [
             ("الاسم", info["name"]),
@@ -505,7 +529,11 @@ def _index() -> None:
         theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
 
     with ui.header().classes("items-center justify-between"):
-        ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
+        with ui.row().classes("items-center gap-2"):
+            icon_url = _get_icon_url()
+            if icon_url:
+                ui.image(icon_url).classes("w-8 h-8")
+            ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
         with ui.row().classes("items-center gap-1"):
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
@@ -514,7 +542,8 @@ def _index() -> None:
                 "flat round dense color=white"
             ).tooltip("الاجتماعات الأخيرة")
             with recent_btn:
-                with ui.menu():
+                _recent_menu_local = ui.menu()
+                with _recent_menu_local:
                     @ui.refreshable
                     def _recent_items() -> None:
                         recents = load_recent_meetings()
@@ -560,8 +589,9 @@ def _index() -> None:
                             ),
                         ).classes("text-negative")
                     _recent_items()
-            global _recent_menu_refresh
+            global _recent_menu_refresh, _recent_menu
             _recent_menu_refresh = _recent_items.refresh
+            _recent_menu = _recent_menu_local
             global _save_btn
             _save_btn = ui.button(icon="save", on_click=_save_current_meeting).props(
                 "flat round dense color=white"
@@ -618,6 +648,11 @@ def _index() -> None:
             _save_current_meeting()
         elif k == "o":
             await _open_meeting()
+        elif k == "r":
+            if _recent_menu is not None:
+                if _recent_menu_refresh is not None:
+                    _recent_menu_refresh()
+                _recent_menu.open()
         elif k == "e":
             await _compile_meeting()
 
