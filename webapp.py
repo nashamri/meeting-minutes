@@ -750,6 +750,23 @@ def _resolve_meeting_dest() -> Path | None:
     )
 
 
+def _open_meeting_folder() -> None:
+    """Reveal the meeting's folder in the OS file manager.
+
+    Reuses _open_in_default_editor since xdg-open / `open` / os.startfile
+    all open folders too. If the meeting isn't yet saved (fields missing
+    or the resolved path doesn't exist on disk), tell the user instead of
+    silently opening the parent root.
+    """
+    dest = _resolve_meeting_dest()
+    if dest is None:
+        return  # _resolve_meeting_dest already surfaced what's missing
+    if not dest.exists():
+        _notify("لم يُحفظ الاجتماع بعد.", type="negative")
+        return
+    _open_in_default_editor(dest)
+
+
 def _save_current_meeting() -> Path | None:
     dest = _resolve_meeting_dest()
     if dest is None:
@@ -862,6 +879,8 @@ _SHORTCUTS = [
     ("حفظ", ["Ctrl", "S"]),
     ("فتح", ["Ctrl", "O"]),
     ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
+    ("نسخ كقالب", ["Ctrl", "D"]),
+    ("فتح مجلد الاجتماع", ["Ctrl", "F"]),
     ("تصدير PDF", ["Ctrl", "E"]),
 ]
 
@@ -1176,6 +1195,10 @@ def _index() -> None:
                 if _recent_menu_refresh is not None:
                     _recent_menu_refresh()
                 _recent_menu.open()
+        elif k == "d":
+            _duplicate_as_template()
+        elif k == "f":
+            _open_meeting_folder()
         elif k == "e":
             await _compile_meeting()
 
