@@ -1064,22 +1064,33 @@ def _front_matter_panel(meeting: Meeting) -> None:
                             meeting.date = _date_to_display(e.value)
                             _set_date_title(e.value)
 
-                        with ui.menu() as datetime_menu:
-                            with ui.row().classes(
-                                "items-start gap-2 p-2 flex-nowrap"
+                        # Dialog instead of q-menu: viewport-centered by
+                        # default and rendered consistently on Linux/Windows.
+                        # q-menu anchors to the icon element, whose pixel
+                        # position drifts between QtWebEngine builds.
+                        with ui.dialog() as datetime_dialog:
+                            with ui.card().classes("p-2").style(
+                                "max-width: none; width: max-content"
                             ):
-                                date_picker = ui.date(
-                                    value=_date_from_display(meeting.date),
-                                    on_change=_on_date_change,
-                                )
-                                _date_picker_holder["picker"] = date_picker
-                                _set_date_title(
-                                    _date_from_display(meeting.date)
-                                )
-                                ui.time(
-                                    on_change=lambda _: _refresh_time_preview()
-                                ).bind_value(meeting, "time_digital")
-                        datetime_icon.on("click", lambda: datetime_menu.open())
+                                with ui.row().classes(
+                                    "items-start gap-2 flex-nowrap"
+                                ):
+                                    date_picker = ui.date(
+                                        value=_date_from_display(meeting.date),
+                                        on_change=_on_date_change,
+                                    )
+                                    _date_picker_holder["picker"] = date_picker
+                                    _set_date_title(
+                                        _date_from_display(meeting.date)
+                                    )
+                                    ui.time(
+                                        on_change=lambda _: _refresh_time_preview()
+                                    ).bind_value(meeting, "time_digital")
+                                with ui.row().classes("w-full justify-end mt-2"):
+                                    ui.button(
+                                        "إغلاق", on_click=datetime_dialog.close
+                                    ).props("flat")
+                        datetime_icon.on("click", lambda: datetime_dialog.open())
                 _preview_holder["label"] = ui.label().classes(
                     "text-xs text-gray-500 px-2 pt-1"
                 )
