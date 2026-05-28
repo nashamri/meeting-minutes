@@ -1,6 +1,16 @@
 #import "constants.typ": *
 
-#let index-pages = 2
+// Tracks the page number where the main content (articles) begins.
+// agenda-section calls mark-content-start at its end to populate this.
+// Read via context to drive both the page numbering and the
+// center-vs-full footer choice — no hardcoded index page count.
+#let _content-start-page = state("content-start", none)
+
+#let mark-content-start = context {
+    if _content-start-page.get() == none {
+        _content-start-page.update(here().page())
+    }
+}
 
 // Footer definitions
 #let footer = [
@@ -30,11 +40,12 @@
 #let setup(doc) = {
     set page(
         "a4",
-        numbering: n => {
-            if n <= index-pages {
+        numbering: n => context {
+            let start = _content-start-page.final()
+            if start == none or n < start {
                 none
             } else {
-                str(n - index-pages)
+                str(n - start + 1)
             }
         },
         margin: (
@@ -53,11 +64,15 @@
             #v(1.2em)
         ],
         footer: context {
+            let start = _content-start-page.final()
             let current-page = counter(page).get().first()
             let final-page = counter(page).final().first()
-    
+
+            // Center-footer (no page number) on pre-content pages and on
+            // the final page. Full footer with number for everything else.
             if (
-                current-page <= index-pages
+                start == none
+                or current-page < start
                 or current-page == final-page
             ) [#center-footer] else [#footer]
         },
@@ -109,6 +124,7 @@
     #v(1em)
     #outline(title: align(center)[جدول الأعمال] + v(1em))
     #pagebreak()
+    #mark-content-start
 ]
 
 // Recommendation text before signatures table
