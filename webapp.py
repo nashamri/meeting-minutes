@@ -386,10 +386,30 @@ def _register_fonts() -> None:
         "{ width: 100% !important; max-width: 100% !important; min-width: 0 !important; } "
         ".tbl-cell .q-field__native { unicode-bidi: plaintext; text-align: start; }"
     )
+    # In dark mode, replace the primary-coloured header and footer with a
+    # dark gray so the blue accent reads as an accent, not as a wall at the
+    # top/bottom of the app.
+    dark_header_rule = (
+        "body.body--dark .q-header, "
+        "body.body--dark .q-footer { "
+        "background: #1F2937 !important; "
+        "}"
+    )
     ui.add_head_html(
-        f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule}</style>",
+        f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} {dark_header_rule}</style>",
         shared=True,
     )
+
+
+# Brand primaries per theme. ui.colors() calls Quasar's runtime setBrand(),
+# which updates the whole color system reliably — including classes a plain
+# CSS-var override doesn't reach.
+_PRIMARY_LIGHT = "#1976D2"  # Quasar default
+_PRIMARY_DARK = "#3D8BD8"  # Same hue, +saturation, -lightness vs Blue 300
+
+
+def _apply_theme_colors(is_dark: bool) -> None:
+    ui.colors(primary=_PRIMARY_DARK if is_dark else _PRIMARY_LIGHT)
 
 
 _register_fonts()
@@ -825,11 +845,14 @@ def _open_about(info: dict) -> None:
 @ui.page("/")
 def _index() -> None:
     info = get_app_info()
-    dark = ui.dark_mode(value=(load_theme() == "dark"))
+    is_dark = load_theme() == "dark"
+    dark = ui.dark_mode(value=is_dark)
+    _apply_theme_colors(is_dark)
 
     def toggle_theme() -> None:
         new_value = not dark.value
         dark.set_value(new_value)
+        _apply_theme_colors(new_value)
         save_theme("dark" if new_value else "light")
         theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
 
@@ -1038,7 +1061,7 @@ def _front_matter_panel(meeting: Meeting) -> None:
                         lbl.text = ""
 
                 with (
-                    ui.input("التاريخ والوقت", placeholder="20 / 5 / 2026 م")
+                    ui.input("التاريخ والوقت")
                     .bind_value(meeting, "date")
                     .classes("w-full") as date_input
                 ):
