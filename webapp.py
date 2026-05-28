@@ -349,10 +349,14 @@ async def _compile_meeting() -> None:
     preview_dir.mkdir(exist_ok=True)
     svg_template = preview_dir / "page-{0p}.svg"
 
+    # When we ship bundled fonts, lock typst to ONLY that set. Otherwise
+    # platform-specific system fonts leak in and produce different PDFs on
+    # Linux/macOS/Windows — including bidi-mirror differences for glyphs
+    # like sym.paren.stroked that depend on font shaping tables.
     font_args: list[str] = []
     bundled_fonts = typst_font_dir()
     if bundled_fonts is not None:
-        font_args = ["--font-path", str(bundled_fonts)]
+        font_args = ["--font-path", str(bundled_fonts), "--ignore-system-fonts"]
 
     try:
         pdf_result = await asyncio.to_thread(

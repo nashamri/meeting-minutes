@@ -8,7 +8,7 @@
         #grid(
             columns: (1fr, 1cm),
             align: (right + horizon, center + horizon),
-            [ #meeting-name #sym.space.med #sym.paren.stroked.r الجلسة #meeting-number #sym.paren.stroked.l #sym.space.med #meeting-date],
+            [#set text(lang: "ar"); #meeting-name #sym.space.med #sym.paren.stroked.l الجلسة #meeting-number #sym.paren.stroked.r #sym.space.med #meeting-date],
             [ #box(stroke: 0.05em + rgb(accent-color), inset: 0.3em)[ #context counter(page).display()]],
         )
     ]
@@ -20,7 +20,7 @@
         #grid(
             columns: 1fr,
             align: (center + horizon),
-            [ #meeting-name #sym.space.med #sym.paren.stroked.r الجلسة #meeting-number #sym.paren.stroked.l #sym.space.med #meeting-date],
+            [#set text(lang: "ar"); #meeting-name #sym.space.med #sym.paren.stroked.l الجلسة #meeting-number #sym.paren.stroked.r #sym.space.med #meeting-date],
         )
     ]
     #align(center)[#image("/lib/footer.png")]
@@ -48,7 +48,8 @@
         header: [#align(center)[
             #image("/lib/header.png")
             #place(dx: -7.8cm, dy: -0.2cm)[
-                #sym.paren.r.stroked سري وغير قابل للتداول #sym.paren.l.stroked]]
+                #set text(lang: "ar");
+                #sym.paren.l.stroked سري وغير قابل للتداول #sym.paren.r.stroked]]
             #v(1.2em)
         ],
         footer: context {
