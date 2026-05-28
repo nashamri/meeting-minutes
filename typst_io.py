@@ -9,6 +9,22 @@ _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 _LIB_TEMPLATE_DIR = _RESOURCE_ROOT / "assets" / "meeting_template" / "lib"
 
 
+def _copy_writable(src: Path, dst: Path) -> None:
+    """Copy a template file, then force owner-write on the destination.
+
+    Templates may live in a read-only location (the Nix store ships files
+    at mode 0444). shutil.copy2 propagates that mode, leaving the user with
+    files they can't edit. Always add the owner-write bit to anything we
+    drop into a user meeting folder.
+    """
+    shutil.copy2(src, dst)
+    dst.chmod(dst.stat().st_mode | 0o200)
+
+
+def _copytree_writable(src: Path, dst: Path) -> None:
+    shutil.copytree(src, dst, copy_function=_copy_writable)
+
+
 def _quote(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -126,12 +142,17 @@ def write_meeting(meeting: Meeting, dest_dir: Path) -> Path:
             continue
         target = lib_dir / src.name
         if src.suffix == ".typ":
-            shutil.copy2(src, target)
+            _copy_writable(src, target)
         elif not target.exists():
             if src.is_dir():
-                shutil.copytree(src, target)
+                _copytree_writable(src, target)
             else:
-                shutil.copy2(src, target)
+                _copy_writable(src, target)
+    # Heal pre-existing meetings that were saved before _copy_writable existed:
+    # walk the user's lib_dir once and ensure every file is owner-writable.
+    for p in lib_dir.rglob("*"):
+        if p.is_file():
+            p.chmod(p.stat().st_mode | 0o200)
     (lib_dir / "constants.typ").write_text(_render_constants(meeting), encoding="utf-8")
 
     articles_dir = dest_dir / "articles"
