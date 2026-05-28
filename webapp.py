@@ -124,6 +124,52 @@ def _meeting_label_for_path(p: Path) -> str:
     return " / ".join(parts[-3:]) if len(parts) >= 3 else p.name
 
 
+# Arabic ordinal feminine forms (1-10 stand-alone, plus the ones-shape used
+# to build compound numbers 11-99). الجلسة is feminine so this is the form
+# that agrees with it. 11-19 take "X عشرة". 21-99 take "X و-tens" where tens
+# uses the indefinite-of-the-definite cardinal (العشرون, الثلاثون, ...).
+_AR_ORDINAL_FEM_10 = {
+    1: "الأولى", 2: "الثانية", 3: "الثالثة", 4: "الرابعة", 5: "الخامسة",
+    6: "السادسة", 7: "السابعة", 8: "الثامنة", 9: "التاسعة", 10: "العاشرة",
+}
+_AR_ONES_FEM_FOR_COMPOUND = {
+    1: "الحادية", 2: "الثانية", 3: "الثالثة", 4: "الرابعة", 5: "الخامسة",
+    6: "السادسة", 7: "السابعة", 8: "الثامنة", 9: "التاسعة",
+}
+_AR_TENS = {
+    20: "العشرون", 30: "الثلاثون", 40: "الأربعون", 50: "الخمسون",
+    60: "الستون", 70: "السبعون", 80: "الثمانون", 90: "التسعون",
+}
+
+
+def _arabic_ordinal_feminine(n: int) -> str:
+    if n < 1:
+        return ""
+    if n <= 10:
+        return _AR_ORDINAL_FEM_10[n]
+    if 11 <= n <= 19:
+        return f"{_AR_ONES_FEM_FOR_COMPOUND[n - 10]} عشرة"
+    if 20 <= n <= 99:
+        ones = n % 10
+        tens = n - ones
+        if ones == 0:
+            return _AR_TENS[tens]
+        return f"{_AR_ONES_FEM_FOR_COMPOUND[ones]} و{_AR_TENS[tens]}"
+    # Beyond 99 the word form gets unwieldy; meetings won't realistically
+    # hit this. Keep the digit so the document still reads sensibly.
+    return f"رقم {n}"
+
+
+def _sync_number_word(meeting: Meeting) -> None:
+    """Derive meeting.number (word form) from meeting.number_num (digit)."""
+    s = (meeting.number_num or "").strip()
+    if not s:
+        meeting.number = ""
+        return
+    if s.isdigit():
+        meeting.number = _arabic_ordinal_feminine(int(s))
+
+
 _DATE_DISPLAY_RE = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})")
 
 
@@ -848,16 +894,29 @@ def _front_matter_panel(meeting: Meeting) -> None:
             ui.input("اسم المجلس / اللجنة").bind_value(meeting, "name").classes(
                 "w-full"
             )
-            ui.input("الجلسة (نصاً)", placeholder="السادسة عشرة").bind_value(
-                meeting, "number"
-            ).classes("w-full")
-            ui.input(
-                "الجلسة (رقماً)",
-                placeholder="16",
-                validation={
-                    "يجب أن يكون عدداً صحيحاً": lambda v: not v or v.strip().isdigit()
-                },
-            ).bind_value(meeting, "number_num").classes("w-full")
+            with ui.column().classes("w-full gap-0"):
+                num_input = ui.input(
+                    "رقم الجلسة",
+                    placeholder="16",
+                    validation={
+                        "يجب أن يكون عدداً صحيحاً":
+                        lambda v: not v or v.strip().isdigit()
+                    },
+                ).bind_value(meeting, "number_num").classes("w-full")
+                word_preview = ui.label().classes(
+                    "text-xs text-gray-500 px-2 pt-1"
+                )
+
+                def _refresh_word_preview() -> None:
+                    _sync_number_word(meeting)
+                    word_preview.text = (
+                        f"يكتب في المحضر: الجلسة {meeting.number}"
+                        if meeting.number
+                        else ""
+                    )
+
+                num_input.on_value_change(lambda _: _refresh_word_preview())
+                _refresh_word_preview()
             with (
                 ui.input("التاريخ", placeholder="20 / 5 / 2026 م")
                 .bind_value(meeting, "date")
