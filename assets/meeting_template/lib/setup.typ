@@ -146,7 +146,7 @@
     #align(right)[ #text(size: 13pt)[المدعوين في المحضر: #invitees] ]
 
     #v(1em)
-    #align(right)[ #text(size: 13pt)[#notes] ]
+    #align(right)[ #text(size: 13pt)[الإضافات والملحوظات: #notes] ]
 
     #v(1em)
     #repeat([.])

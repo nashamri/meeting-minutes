@@ -322,7 +322,13 @@ def read_meeting(src_dir: Path) -> Meeting:
             meeting.invitees = invitees
         closing = _extract_kwarg_content(main_text, "closing-notes", "notes")
         if closing:
-            meeting.closing_notes = closing
+            # Legacy: meetings saved before the heading moved into the template
+            # have "الإضافات والملحوظات:" baked into the notes value. Strip it
+            # so the new template doesn't render it twice.
+            stripped = re.sub(
+                r"^\s*الإضافات\s+والملحوظات\s*:\s*", "", closing
+            )
+            meeting.closing_notes = stripped
 
     articles_dir = src_dir / "articles"
     for filename in article_filenames:

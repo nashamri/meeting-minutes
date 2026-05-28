@@ -1355,9 +1355,12 @@ def _end_matter_panel(meeting: Meeting) -> None:
 
         # ui.separator()
 
-        ui.label("ملاحظات الختام").classes("text-base font-semibold")
-        ui.input("المدعوين").bind_value(meeting, "invitees").classes("w-full")
-        ui.textarea("الإضافات والملحوظات").bind_value(meeting, "closing_notes").props(
+        ui.label("المدعوين").classes("text-base font-semibold")
+        ui.textarea().bind_value(meeting, "invitees").props(
+            "rows=3 autogrow"
+        ).classes("w-full")
+        ui.label("الإضافات والملحوظات").classes("text-base font-semibold")
+        ui.textarea().bind_value(meeting, "closing_notes").props(
             "rows=4 autogrow"
         ).classes("w-full")
 
