@@ -10,7 +10,7 @@
 # in one place when you want to roll forward.
 set -euo pipefail
 
-TYPST_DEFAULT_VERSION="0.13.1"
+TYPST_DEFAULT_VERSION="0.14.2"
 TYPST_VERSION="${TYPST_VERSION:-$TYPST_DEFAULT_VERSION}"
 
 triple="${1:-}"

@@ -354,7 +354,8 @@ async def _compile_meeting() -> None:
             subprocess.run,
             [str(typst_bin), "compile", str(main_typ), str(pdf_path)],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         if pdf_result.returncode == 0:
@@ -362,7 +363,8 @@ async def _compile_meeting() -> None:
                 subprocess.run,
                 [str(typst_bin), "compile", str(main_typ), str(svg_template), "--format", "svg"],
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
             )
         else:
