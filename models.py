@@ -29,6 +29,7 @@ class Meeting:
     number_num: str = ""
     date: str = ""
     time: str = ""
+    time_digital: str = ""
     academic_year: str = ""
     members: list[Member] = field(default_factory=list)
     articles: list[Article] = field(default_factory=list)

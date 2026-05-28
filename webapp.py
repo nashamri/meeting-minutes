@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import webbrowser
+from datetime import date as _date_cls
 from pathlib import Path
 
 from nicegui import app, ui
@@ -81,6 +82,7 @@ def _meeting_fingerprint(m: Meeting) -> str:
         m.number_num,
         m.date,
         m.time,
+        m.time_digital,
         m.academic_year,
         m.approval_text,
         m.invitees,
@@ -168,6 +170,97 @@ def _sync_number_word(meeting: Meeting) -> None:
         return
     if s.isdigit():
         meeting.number = _arabic_ordinal_feminine(int(s))
+
+
+# Feminine hours (السَّاعة is feminine), 1-12. _arabic_time_phrase picks the
+# right one from a 24h input.
+_AR_HOURS_FEM_12 = {
+    1: "الواحدة", 2: "الثانية", 3: "الثالثة", 4: "الرابعة",
+    5: "الخامسة", 6: "السادسة", 7: "السابعة", 8: "الثامنة",
+    9: "التاسعة", 10: "العاشرة", 11: "الحادية عشرة", 12: "الثانية عشرة",
+}
+
+
+def _arabic_period(h: int) -> str:
+    if 5 <= h <= 11:
+        return "صباحاً"
+    if h == 12:
+        return "ظهراً"
+    if 13 <= h <= 15:
+        return "ظهراً"
+    if 16 <= h <= 18:
+        return "عصراً"
+    if 19 <= h <= 23:
+        return "مساءً"
+    return "ليلاً"  # 0-4
+
+
+def _arabic_time_phrase(hhmm: str) -> str:
+    """Convert HH:MM (24h) into Arabic prose, e.g. '11:00' → 'الحادية عشرة صباحاً'.
+
+    Common quarter-fractions get their idiomatic word form; other minute
+    values keep the digit inline so the phrase still reads cleanly.
+    """
+    parts = (hhmm or "").split(":")
+    if len(parts) != 2:
+        return ""
+    try:
+        h, m = int(parts[0]), int(parts[1])
+    except ValueError:
+        return ""
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return ""
+    h12 = h % 12 or 12
+    hour_word = _AR_HOURS_FEM_12[h12]
+    period = _arabic_period(h)
+    if m == 0:
+        return f"{hour_word} {period}"
+    if m == 15:
+        return f"{hour_word} والربع {period}"
+    if m == 30:
+        return f"{hour_word} والنصف {period}"
+    return f"{hour_word} و{m} دقيقة {period}"
+
+
+_AR_WEEKDAYS_FULL = {
+    0: "الإثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس",
+    4: "الجمعة", 5: "السبت", 6: "الأحد",
+}
+_AR_MONTHS_FULL = {
+    1: "يناير", 2: "فبراير", 3: "مارس", 4: "أبريل",
+    5: "مايو", 6: "يونيو", 7: "يوليو", 8: "أغسطس",
+    9: "سبتمبر", 10: "أكتوبر", 11: "نوفمبر", 12: "ديسمبر",
+}
+
+
+def _arabic_full_date(iso: str) -> str:
+    """Convert YYYY-MM-DD (slashes also accepted) into 'الإثنين، 20 مايو 2026'.
+
+    Used to override q-date's abbreviated title (e.g. 'Mon, May 20').
+    Returns '' for unparseable input so the caller can use a blank fallback.
+    """
+    if not iso:
+        return ""
+    parts = iso.replace("/", "-").split("-")
+    if len(parts) != 3:
+        return ""
+    try:
+        y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+        dt = _date_cls(y, m, d)
+    except (ValueError, KeyError):
+        return ""
+    return f"{_AR_WEEKDAYS_FULL[dt.weekday()]}، {d} {_AR_MONTHS_FULL[m]} {y}"
+
+
+def _sync_time_phrase(meeting: Meeting) -> None:
+    """Derive meeting.time (Arabic prose) from meeting.time_digital (HH:MM)."""
+    s = (meeting.time_digital or "").strip()
+    if not s:
+        meeting.time = ""
+        return
+    phrase = _arabic_time_phrase(s)
+    if phrase:
+        meeting.time = phrase
 
 
 _DATE_DISPLAY_RE = re.compile(r"(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})")
@@ -316,6 +409,7 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
         "number_num",
         "date",
         "time",
+        "time_digital",
         "academic_year",
         "approval_text",
         "invitees",
@@ -348,6 +442,7 @@ def _reset_to_blank_meeting() -> None:
         "number_num",
         "date",
         "time",
+        "time_digital",
         "academic_year",
         "approval_text",
         "invitees",
@@ -917,26 +1012,78 @@ def _front_matter_panel(meeting: Meeting) -> None:
 
                 num_input.on_value_change(lambda _: _refresh_word_preview())
                 _refresh_word_preview()
-            with (
-                ui.input("التاريخ", placeholder="20 / 5 / 2026 م")
-                .bind_value(meeting, "date")
-                .classes("w-full") as date_input
-            ):
-                with date_input.add_slot("append"):
-                    date_icon = ui.icon("event").classes("cursor-pointer")
-                    with ui.menu() as date_menu:
-                        ui.date(
-                            value=_date_from_display(meeting.date),
-                            on_change=lambda e: setattr(
-                                meeting, "date", _date_to_display(e.value)
-                            )
-                            if e.value
-                            else None,
+            # Date and time share one popup. The date input's text shows the
+            # date; the picked time is reflected in the small preview label
+            # below — both digital (for verification) and the Arabic prose
+            # that gets written to the PDF.
+            with ui.column().classes("w-full gap-0"):
+                # Mutable holder so _refresh_time_preview can be defined
+                # before the label exists. NiceGUI fires the time picker's
+                # on_change during construction, so the refresh function has
+                # to already be bound by then; the label gets attached later
+                # and the function picks it up via this dict.
+                _preview_holder: dict = {"label": None}
+
+                def _refresh_time_preview() -> None:
+                    _sync_time_phrase(meeting)
+                    lbl = _preview_holder["label"]
+                    if lbl is None:
+                        return
+                    if meeting.time_digital and meeting.time:
+                        lbl.text = (
+                            f"الوقت: {meeting.time_digital} ({meeting.time})"
                         )
-                    date_icon.on("click", lambda: date_menu.open())
-            ui.input("الوقت", placeholder="الحادية عشرة صباحاً").bind_value(
-                meeting, "time"
-            ).classes("w-full")
+                    elif meeting.time_digital:
+                        lbl.text = f"الوقت: {meeting.time_digital}"
+                    else:
+                        lbl.text = ""
+
+                with (
+                    ui.input("التاريخ والوقت", placeholder="20 / 5 / 2026 م")
+                    .bind_value(meeting, "date")
+                    .classes("w-full") as date_input
+                ):
+                    with date_input.add_slot("append"):
+                        datetime_icon = ui.icon("event").classes(
+                            "cursor-pointer"
+                        )
+                        _date_picker_holder: dict = {"picker": None}
+
+                        def _set_date_title(iso: str) -> None:
+                            picker = _date_picker_holder["picker"]
+                            if picker is None:
+                                return
+                            picker._props["title"] = (
+                                _arabic_full_date(iso) or " "
+                            )
+                            picker.update()
+
+                        def _on_date_change(e) -> None:
+                            if not e.value:
+                                return
+                            meeting.date = _date_to_display(e.value)
+                            _set_date_title(e.value)
+
+                        with ui.menu() as datetime_menu:
+                            with ui.row().classes(
+                                "items-start gap-2 p-2 flex-nowrap"
+                            ):
+                                date_picker = ui.date(
+                                    value=_date_from_display(meeting.date),
+                                    on_change=_on_date_change,
+                                )
+                                _date_picker_holder["picker"] = date_picker
+                                _set_date_title(
+                                    _date_from_display(meeting.date)
+                                )
+                                ui.time(
+                                    on_change=lambda _: _refresh_time_preview()
+                                ).bind_value(meeting, "time_digital")
+                        datetime_icon.on("click", lambda: datetime_menu.open())
+                _preview_holder["label"] = ui.label().classes(
+                    "text-xs text-gray-500 px-2 pt-1"
+                )
+                _refresh_time_preview()
             ui.input("السنة الأكاديمية", placeholder="1447").bind_value(
                 meeting, "academic_year"
             ).classes("w-full")

@@ -52,6 +52,7 @@ def _render_constants(meeting: Meeting) -> str:
         f'#let meeting-number = "{q(meeting.number)}"\n'
         f'#let meeting-number-num = "{q(meeting.number_num)}"\n'
         f'#let meeting-time = "{q(meeting.time)}"\n'
+        f'#let meeting-time-digital = "{q(meeting.time_digital)}"\n'
         f'#let meeting-name = "{q(meeting.name)}"\n'
         f'#let academic-year = "{q(meeting.academic_year)}"\n'
     )
@@ -304,6 +305,7 @@ def read_meeting(src_dir: Path) -> Meeting:
         meeting.number_num = _extract_string_let(text, "meeting-number-num")
         meeting.date = _extract_string_let(text, "meeting-date")
         meeting.time = _extract_string_let(text, "meeting-time")
+        meeting.time_digital = _extract_string_let(text, "meeting-time-digital")
         meeting.academic_year = _extract_string_let(text, "academic-year")
 
     main_path = src_dir / "main.typ"
