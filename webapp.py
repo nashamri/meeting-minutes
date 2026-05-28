@@ -992,7 +992,6 @@ def _front_matter_panel(meeting: Meeting) -> None:
             with ui.column().classes("w-full gap-0"):
                 num_input = ui.input(
                     "رقم الجلسة",
-                    placeholder="16",
                     validation={
                         "يجب أن يكون عدداً صحيحاً":
                         lambda v: not v or v.strip().isdigit()
@@ -1095,7 +1094,7 @@ def _front_matter_panel(meeting: Meeting) -> None:
                     "text-xs text-gray-500 px-2 pt-1"
                 )
                 _refresh_time_preview()
-            ui.input("السنة الأكاديمية", placeholder="1447").bind_value(
+            ui.input("السنة الأكاديمية").bind_value(
                 meeting, "academic_year"
             ).classes("w-full")
 
