@@ -288,6 +288,63 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
 
 
+def _reset_to_blank_meeting() -> None:
+    """Wipe the in-memory meeting back to defaults and refresh the UI.
+
+    Mirrors _apply_loaded_meeting but without a source path: no recents
+    update, and the preview tab gets cleared so stale SVGs from the
+    previous meeting don't linger."""
+    global _preview_urls
+    fresh = Meeting()
+    for attr in (
+        "name",
+        "number",
+        "number_num",
+        "date",
+        "time",
+        "academic_year",
+        "approval_text",
+        "invitees",
+        "closing_notes",
+    ):
+        setattr(_meeting, attr, getattr(fresh, attr))
+    _meeting.members = list(fresh.members)
+    _meeting.articles = list(fresh.articles)
+    _members_list.refresh()
+    _articles_list.refresh()
+    _signatures_preview.refresh()
+    _preview_urls = []
+    _pdf_view.refresh()
+    if _tabs_ref is not None:
+        _tabs_ref.set_value("front")
+    _mark_clean()
+    _notify("اجتماع جديد.", type="positive", timeout=3000)
+
+
+def _new_meeting() -> None:
+    """Entry point for the New-Meeting button. Confirms only if the user
+    has unsaved edits — clean state means no point asking."""
+    if not _is_dirty():
+        _reset_to_blank_meeting()
+        return
+    with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[480px]"):
+        ui.label("إنشاء اجتماع جديد").classes("text-lg font-semibold")
+        ui.label(
+            "يوجد اجتماع مفتوح بتغييرات غير محفوظة. هل تريد تجاهل التغييرات وبدء اجتماع جديد؟"
+        ).classes("text-sm")
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+
+            def _ok() -> None:
+                dialog.close()
+                _reset_to_blank_meeting()
+
+            ui.button("تجاهل وابدأ", on_click=_ok).props(
+                "unelevated color=warning"
+            )
+    dialog.open()
+
+
 def _is_meeting_dir(src: Path) -> bool:
     """A saved meeting always has a main.typ entry point. read_meeting is
     permissive and returns an empty Meeting if files are missing, so we
@@ -472,6 +529,7 @@ def _pdf_view() -> None:
 
 
 _SHORTCUTS = [
+    ("اجتماع جديد", ["Ctrl", "N"]),
     ("حفظ", ["Ctrl", "S"]),
     ("فتح", ["Ctrl", "O"]),
     ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
@@ -641,6 +699,9 @@ def _index() -> None:
                 ui.image(icon_url).classes("w-8 h-8")
             ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
         with ui.row().classes("items-center gap-1"):
+            ui.button(icon="note_add", on_click=_new_meeting).props(
+                "flat round dense color=white"
+            ).tooltip("اجتماع جديد")
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
@@ -762,7 +823,9 @@ def _index() -> None:
         if not e.modifiers.ctrl:
             return
         k = (e.key.name or "").lower()
-        if k == "s":
+        if k == "n":
+            _new_meeting()
+        elif k == "s":
             _save_current_meeting()
         elif k == "o":
             await _open_meeting()
