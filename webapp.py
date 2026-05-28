@@ -75,8 +75,15 @@ def _get_icon_url() -> str | None:
 
 def _meeting_fingerprint(m: Meeting) -> str:
     parts: list[str] = [
-        m.name, m.number, m.number_num, m.date, m.time, m.academic_year,
-        m.approval_text, m.invitees, m.closing_notes,
+        m.name,
+        m.number,
+        m.number_num,
+        m.date,
+        m.time,
+        m.academic_year,
+        m.approval_text,
+        m.invitees,
+        m.closing_notes,
     ]
     for mem in m.members:
         parts.extend([mem.name, mem.role, mem.attendance, mem.excuse])
@@ -199,6 +206,7 @@ def _show_history() -> None:
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
     dialog.open()
 
+
 _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 _FONTS_DIR = _RESOURCE_ROOT / "assets" / "fonts"
 
@@ -225,7 +233,7 @@ def _register_fonts() -> None:
         for style, weight in _FONT_WEIGHTS.items()
     )
     body_rule = (
-        'body, .q-field, .q-btn, .q-dialog, .q-tooltip, input, textarea, button '
+        "body, .q-field, .q-btn, .q-dialog, .q-tooltip, input, textarea, button "
         '{ font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; }'
     )
     resize_rule = ".q-textarea textarea.q-field__native { resize: vertical; }"
@@ -247,7 +255,7 @@ def _register_fonts() -> None:
 _register_fonts()
 
 
-_INVALID_PATH_CHARS = '/\\\n\r\t\0'
+_INVALID_PATH_CHARS = "/\\\n\r\t\0"
 
 
 def _sanitize_path_component(value: str) -> str:
@@ -256,8 +264,15 @@ def _sanitize_path_component(value: str) -> str:
 
 def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     for attr in (
-        "name", "number", "number_num", "date", "time", "academic_year",
-        "approval_text", "invitees", "closing_notes",
+        "name",
+        "number",
+        "number_num",
+        "date",
+        "time",
+        "academic_year",
+        "approval_text",
+        "invitees",
+        "closing_notes",
     ):
         setattr(_meeting, attr, getattr(loaded, attr))
     _meeting.members = list(loaded.members)
@@ -315,9 +330,7 @@ async def _open_meeting() -> None:
         return
     src = Path(paths[0])
     if not _is_meeting_dir(src):
-        _notify(
-            f"المجلد المختار لا يحتوي على اجتماع: {src.name}", type="negative"
-        )
+        _notify(f"المجلد المختار لا يحتوي على اجتماع: {src.name}", type="negative")
         return
     try:
         loaded = read_meeting(src)
@@ -373,9 +386,7 @@ async def _compile_meeting() -> None:
         return
     typst_bin = find_typst()
     if typst_bin is None:
-        _notify(
-            "لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative"
-        )
+        _notify("لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative")
         return
     main_typ = dest / "main.typ"
     pdf_path = dest / "main.pdf"
@@ -407,7 +418,15 @@ async def _compile_meeting() -> None:
         if pdf_result.returncode == 0:
             svg_result = await asyncio.to_thread(
                 subprocess.run,
-                [str(typst_bin), "compile", *font_args, str(main_typ), str(svg_template), "--format", "svg"],
+                [
+                    str(typst_bin),
+                    "compile",
+                    *font_args,
+                    str(main_typ),
+                    str(svg_template),
+                    "--format",
+                    "svg",
+                ],
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",
@@ -488,15 +507,14 @@ def _open_about(info: dict) -> None:
         if icon_url:
             with ui.row().classes("w-full justify-center"):
                 ui.image(icon_url).classes("w-24 h-24")
-        ui.label("حول").classes("text-lg font-semibold")
         rows = [
-            ("الاسم", info["name"]),
             ("الإصدار", info["version"]),
-            ("الوصف", info["tagline"]),
             ("Python", info["python_version"]),
             ("النظام", info["platform"]),
             ("ملف الإعدادات", info["config_path"]),
         ]
+        with ui.row().classes("w-full justify-center"):
+            ui.label(info["name"]).classes("text-lg font-semibold")
         for key, value in rows:
             with ui.row().classes("w-full justify-between items-center gap-4"):
                 ui.label(key).classes("text-sm text-gray-500")
@@ -538,12 +556,15 @@ def _index() -> None:
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
-            recent_btn = ui.button(icon="history").props(
-                "flat round dense color=white"
-            ).tooltip("الاجتماعات الأخيرة")
+            recent_btn = (
+                ui.button(icon="history")
+                .props("flat round dense color=white")
+                .tooltip("الاجتماعات الأخيرة")
+            )
             with recent_btn:
                 _recent_menu_local = ui.menu()
                 with _recent_menu_local:
+
                     @ui.refreshable
                     def _recent_items() -> None:
                         recents = load_recent_meetings()
@@ -562,9 +583,7 @@ def _index() -> None:
                             )
                             return
                         for p in recents:
-                            with ui.menu_item(
-                                on_click=lambda x=p: _open_meeting_at(x)
-                            ):
+                            with ui.menu_item(on_click=lambda x=p: _open_meeting_at(x)):
                                 with ui.row().classes(
                                     "w-full items-center justify-between gap-3 min-w-[280px]"
                                 ):
@@ -588,14 +607,17 @@ def _index() -> None:
                                 _recent_items.refresh(),
                             ),
                         ).classes("text-negative")
+
                     _recent_items()
             global _recent_menu_refresh, _recent_menu
             _recent_menu_refresh = _recent_items.refresh
             _recent_menu = _recent_menu_local
             global _save_btn
-            _save_btn = ui.button(icon="save", on_click=_save_current_meeting).props(
-                "flat round dense color=white"
-            ).tooltip("حفظ")
+            _save_btn = (
+                ui.button(icon="save", on_click=_save_current_meeting)
+                .props("flat round dense color=white")
+                .tooltip("حفظ")
+            )
             ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
                 "flat round dense color=white"
             ).tooltip("تصدير PDF")
@@ -618,7 +640,12 @@ def _index() -> None:
         end_tab = ui.tab("end", label="الاعتماد", icon="verified")
         pdf_tab = ui.tab("pdf", label="معاينة", icon="picture_as_pdf")
     _tabs_ref = tabs
-    _front_tab, _articles_tab, _end_tab, _pdf_tab = front_tab, articles_tab, end_tab, pdf_tab
+    _front_tab, _articles_tab, _end_tab, _pdf_tab = (
+        front_tab,
+        articles_tab,
+        end_tab,
+        pdf_tab,
+    )
 
     with ui.tab_panels(tabs, value=front_tab).classes("w-full"):
         with ui.tab_panel(front_tab):
@@ -664,7 +691,9 @@ def _front_matter_panel(meeting: Meeting) -> None:
     with ui.column().classes("w-full gap-4 p-4"):
         ui.label("بيانات الاجتماع").classes("text-base font-semibold")
         with ui.grid(columns=2).classes("w-full gap-3"):
-            ui.input("اسم المجلس / اللجنة").bind_value(meeting, "name").classes("w-full")
+            ui.input("اسم المجلس / اللجنة").bind_value(meeting, "name").classes(
+                "w-full"
+            )
             ui.input("الجلسة (نصاً)", placeholder="السادسة عشرة").bind_value(
                 meeting, "number"
             ).classes("w-full")
@@ -675,9 +704,11 @@ def _front_matter_panel(meeting: Meeting) -> None:
                     "يجب أن يكون عدداً صحيحاً": lambda v: not v or v.strip().isdigit()
                 },
             ).bind_value(meeting, "number_num").classes("w-full")
-            with ui.input(
-                "التاريخ", placeholder="20 / 5 / 2026 م"
-            ).bind_value(meeting, "date").classes("w-full") as date_input:
+            with (
+                ui.input("التاريخ", placeholder="20 / 5 / 2026 م")
+                .bind_value(meeting, "date")
+                .classes("w-full") as date_input
+            ):
                 with date_input.add_slot("append"):
                     date_icon = ui.icon("event").classes("cursor-pointer")
                     with ui.menu() as date_menu:
@@ -697,7 +728,7 @@ def _front_matter_panel(meeting: Meeting) -> None:
                 meeting, "academic_year"
             ).classes("w-full")
 
-        ui.separator()
+        # ui.separator()
 
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("الأعضاء").classes("text-base font-semibold")
@@ -710,7 +741,7 @@ def _front_matter_panel(meeting: Meeting) -> None:
 @ui.refreshable
 def _members_list(meeting: Meeting) -> None:
     if not meeting.members:
-        ui.label("لا توجد أعضاء بعد. اضغط + لإضافة عضو.").classes(
+        ui.label("لا يوجد أعضاء بعد. اضغط + لإضافة عضو.").classes(
             "text-sm text-gray-500"
         )
         return
@@ -786,23 +817,27 @@ def _articles_list(meeting: Meeting) -> None:
             )
             with drop_target:
                 title_preview = (article.title or f"موضوع جديد {index + 1}").strip()
-                with ui.expansion(
-                    f"{index + 1}. {title_preview}", icon="description"
-                ).props('header-class="text-weight-bold text-primary"').classes("w-full"):
+                with (
+                    ui.expansion(f"{index + 1}. {title_preview}", icon="description")
+                    .props('header-class="text-weight-bold text-primary"')
+                    .classes("w-full")
+                ):
                     with ui.column().classes("w-full gap-3 p-2"):
-                        ui.input("العنوان").bind_value(article, "title").classes("w-full")
-                        ui.textarea("الوصف والمناقشة").bind_value(article, "body").props(
-                            "rows=4 autogrow"
-                        ).classes("w-full")
-                        ui.textarea("القرار / التوصية").bind_value(article, "decision").props(
-                            "rows=2 autogrow"
-                        ).classes("w-full")
-                        ui.textarea("مستند القرار").bind_value(article, "legal_refs").props(
-                            "rows=2 autogrow"
-                        ).classes("w-full")
-                        ui.input("الجهة ذات العلاقة").bind_value(article, "target").classes(
+                        ui.input("العنوان").bind_value(article, "title").classes(
                             "w-full"
                         )
+                        ui.textarea("الوصف والمناقشة").bind_value(
+                            article, "body"
+                        ).props("rows=4 autogrow").classes("w-full")
+                        ui.textarea("القرار / التوصية").bind_value(
+                            article, "decision"
+                        ).props("rows=2 autogrow").classes("w-full")
+                        ui.textarea("مستند القرار").bind_value(
+                            article, "legal_refs"
+                        ).props("rows=2 autogrow").classes("w-full")
+                        ui.input("الجهة ذات العلاقة").bind_value(
+                            article, "target"
+                        ).classes("w-full")
 
                         tables = find_tables(article.body)
                         with ui.expansion(
@@ -820,12 +855,15 @@ def _articles_list(meeting: Meeting) -> None:
                                         ui.button(
                                             "تعديل",
                                             icon="edit",
-                                            on_click=lambda a=article, idx=ti: _open_table_editor(
+                                            on_click=lambda a=article,
+                                            idx=ti: _open_table_editor(
                                                 a, idx, _articles_list.refresh
                                             ),
                                         ).props("flat dense")
                             else:
-                                ui.label("لا يوجد جداول.").classes("text-sm text-gray-500")
+                                ui.label("لا يوجد جداول.").classes(
+                                    "text-sm text-gray-500"
+                                )
                             ui.button(
                                 "إضافة جدول",
                                 icon="add",
@@ -846,9 +884,7 @@ def _articles_list(meeting: Meeting) -> None:
                             ).props("flat color=negative")
 
 
-def _open_table_editor(
-    article: Article, table_index: int | None, on_save
-) -> None:
+def _open_table_editor(article: Article, table_index: int | None, on_save) -> None:
     if table_index is None:
         spec = new_table(rows=2, columns=3)
     else:
@@ -858,15 +894,15 @@ def _open_table_editor(
             return
         spec = tables[table_index]
 
-    with ui.dialog().props("maximized") as dialog, ui.card().classes(
-        "w-full h-full"
-    ):
+    with ui.dialog().props("maximized") as dialog, ui.card().classes("w-full h-full"):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label(
-                "محرر الجدول" if table_index is None else f"تعديل الجدول {table_index + 1}"
+                "محرر الجدول"
+                if table_index is None
+                else f"تعديل الجدول {table_index + 1}"
             ).classes("text-lg font-semibold")
             ui.label(
-                "تلميح: المحتوى داخل الخلية يُلفّ بـ [ ] تلقائياً. التعابير الخام (مثل strong(\"..\")) تبقى كما هي."
+                'تلميح: المحتوى داخل الخلية يُلفّ بـ [ ] تلقائياً. التعابير الخام (مثل strong("..")) تبقى كما هي.'
             ).classes("text-xs text-gray-500")
 
         @ui.refreshable
@@ -949,21 +985,21 @@ def _end_matter_panel(meeting: Meeting) -> None:
             "rows=2 autogrow"
         ).classes("w-full")
 
-        ui.separator()
+        # ui.separator()
 
         ui.label("جدول التوقيعات").classes("text-base font-semibold")
-        ui.label(
-            "يُبنى تلقائياً من قائمة الأعضاء في تبويب «معلومات الاجتماع»."
-        ).classes("text-sm text-gray-500")
+        ui.label("يُبنى تلقائياً من قائمة الأعضاء في تبويب «معلومات الاجتماع».").classes(
+            "text-sm text-gray-500"
+        )
         _signatures_preview(meeting)
 
-        ui.separator()
+        # ui.separator()
 
         ui.label("ملاحظات الختام").classes("text-base font-semibold")
         ui.input("المدعوين").bind_value(meeting, "invitees").classes("w-full")
-        ui.textarea("الإضافات والملحوظات").bind_value(
-            meeting, "closing_notes"
-        ).props("rows=4 autogrow").classes("w-full")
+        ui.textarea("الإضافات والملحوظات").bind_value(meeting, "closing_notes").props(
+            "rows=4 autogrow"
+        ).classes("w-full")
 
 
 @ui.refreshable
@@ -974,7 +1010,12 @@ def _signatures_preview(meeting: Meeting) -> None:
     columns = [
         {"name": "n", "label": "م", "field": "n", "align": "center"},
         {"name": "name", "label": "الاسم", "field": "name", "align": "right"},
-        {"name": "signature", "label": "التوقيع", "field": "signature", "align": "center"},
+        {
+            "name": "signature",
+            "label": "التوقيع",
+            "field": "signature",
+            "align": "center",
+        },
     ]
     rows = [
         {"n": str(i + 1), "name": m.name or "(بدون اسم)", "signature": ""}
