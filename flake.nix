@@ -106,8 +106,9 @@
               runHook preInstall
 
               mkdir -p $out/share/meeting-minutes $out/bin
-              cp main.py webapp.py gui_main.py models.py typst_io.py pyproject.toml \
-                $out/share/meeting-minutes/
+              # Ship every top-level .py module plus pyproject so version
+              # lookup at runtime works. New modules land automatically.
+              cp *.py pyproject.toml $out/share/meeting-minutes/
               if [ -d assets ]; then
                 cp -r assets $out/share/meeting-minutes/
               fi

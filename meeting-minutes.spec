@@ -23,15 +23,22 @@ EXCLUDES = []
 if sys.platform != "linux":
     EXCLUDES += ["PySide6", "qtpy"]
 
+# Vendored typst binary — populated by scripts/fetch-typst.sh locally or by
+# the CI workflow before pyinstaller runs. Bundled at the root so
+# typst_runner.find_typst() picks it up via sys._MEIPASS.
+if sys.platform == "win32":
+    _typst_plat, _typst_exe = "windows", "typst.exe"
+elif sys.platform == "darwin":
+    _typst_plat, _typst_exe = "macos", "typst"
+else:
+    _typst_plat, _typst_exe = "linux", "typst"
+_typst_path = HERE / "vendor" / "typst" / _typst_plat / _typst_exe
+BINARIES = [(str(_typst_path), ".")] if _typst_path.exists() else []
+
 a = Analysis(
     ["gui_main.py"],
     pathex=[str(HERE)],
-    # To ship a pre-built binary (e.g. `typst`) with the app, add it here:
-    #   binaries=[(str(HERE / "vendor" / "typst"), ".")],
-    # and at runtime locate it with:
-    #   Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "typst"
-    # In CI, download the per-platform binary before running pyinstaller.
-    binaries=[],
+    binaries=BINARIES,
     datas=[
         (str(HERE / "assets"), "assets") if (HERE / "assets").exists() else None,
         (str(HERE / "pyproject.toml"), "."),

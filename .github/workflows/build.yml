@@ -25,6 +25,10 @@ jobs:
           uv sync
           uv pip install pyinstaller
 
+      - name: Vendor typst
+        shell: bash
+        run: ./scripts/fetch-typst.sh x86_64-pc-windows-msvc
+
       - name: Build
         run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm
 
@@ -64,6 +68,14 @@ jobs:
         run: |
           uv sync
           uv pip install pyinstaller
+
+      - name: Vendor typst
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            ./scripts/fetch-typst.sh aarch64-apple-darwin
+          else
+            ./scripts/fetch-typst.sh x86_64-apple-darwin
+          fi
 
       - name: Build
         run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm
@@ -112,6 +124,9 @@ jobs:
         run: |
           uv sync --extra linux
           uv pip install pyinstaller
+
+      - name: Vendor typst
+        run: ./scripts/fetch-typst.sh x86_64-unknown-linux-musl
 
       - name: Build
         run: uv run pyinstaller meeting-minutes.spec --clean --noconfirm

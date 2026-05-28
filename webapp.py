@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -24,6 +23,7 @@ from main import (
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
+from typst_runner import find_typst
 from typst_tables import (
     TableCell,
     TableSpec,
@@ -334,7 +334,8 @@ async def _compile_meeting() -> None:
     dest = _save_current_meeting()
     if dest is None:
         return
-    if not shutil.which("typst"):
+    typst_bin = find_typst()
+    if typst_bin is None:
         _notify(
             "لم يتم العثور على برنامج typst. الرجاء تثبيته.", type="negative"
         )
@@ -351,7 +352,7 @@ async def _compile_meeting() -> None:
     try:
         pdf_result = await asyncio.to_thread(
             subprocess.run,
-            ["typst", "compile", str(main_typ), str(pdf_path)],
+            [str(typst_bin), "compile", str(main_typ), str(pdf_path)],
             capture_output=True,
             text=True,
             timeout=60,
@@ -359,7 +360,7 @@ async def _compile_meeting() -> None:
         if pdf_result.returncode == 0:
             svg_result = await asyncio.to_thread(
                 subprocess.run,
-                ["typst", "compile", str(main_typ), str(svg_template), "--format", "svg"],
+                [str(typst_bin), "compile", str(main_typ), str(svg_template), "--format", "svg"],
                 capture_output=True,
                 text=True,
                 timeout=60,
