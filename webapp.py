@@ -328,6 +328,10 @@ def _notify(message: str, *, type: str = "info", **kwargs) -> None:
     if _status_label is not None:
         _status_label.text = message
     kwargs.setdefault("position", "top")
+    # Quasar's default close_button=True renders the localized word for
+    # "Close". Pass a literal X glyph so the dismiss action shows just an
+    # icon, regardless of locale.
+    kwargs.setdefault("close_button", "✕")
     ui.notify(message, type=type, **kwargs)
 
 
@@ -403,8 +407,29 @@ def _register_fonts() -> None:
         "background: #1F2937 !important; "
         "}"
     )
+    # Make notifications clickable to dismiss: cursor hint + a document-level
+    # handler that triggers Quasar's own close button (so its dismissal
+    # lifecycle stays intact). Skip the trigger if the user already clicked
+    # the close button itself, to avoid double-dismiss.
+    notify_click_rule = (
+        ".q-notification { cursor: pointer; } "
+        # Keep the close button in the DOM (we click it from JS to dismiss
+        # cleanly through Quasar's lifecycle) but hide it visually.
+        ".q-notification__actions { display: none !important; }"
+    )
+    notify_dismiss_js = """
+        document.addEventListener('click', function(e) {
+            var notif = e.target.closest && e.target.closest('.q-notification');
+            if (!notif) return;
+            if (e.target.closest('.q-notification__actions')) return;
+            var btn = notif.querySelector('.q-notification__actions .q-btn');
+            if (btn) { btn.click(); }
+        }, true);
+    """
     ui.add_head_html(
-        f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} {dark_header_rule}</style>",
+        f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
+        f"{dark_header_rule} {notify_click_rule}</style>"
+        f"<script>{notify_dismiss_js}</script>",
         shared=True,
     )
 
