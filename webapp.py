@@ -426,10 +426,79 @@ def _register_fonts() -> None:
             if (btn) { btn.click(); }
         }, true);
     """
+    # Article-body formatting helpers. Each ui.textarea for an article body
+    # gets a unique class via input-class on the q-input, which we look up
+    # here. Wraps work on the current selection (or insert markers around
+    # the caret if nothing is selected); list helpers prefix each line in
+    # the selection (or the current line if nothing is selected); the link
+    # helper inserts a #link(...)[...] and parks the cursor inside the URL.
+    article_body_js = r"""
+        (function() {
+            function findTA(cls) {
+                return document.querySelector('textarea.' + cls);
+            }
+            function fireInput(ta) {
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            window.articleBodyWrap = function(cls, prefix, suffix) {
+                var ta = findTA(cls);
+                if (!ta) return;
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                var sel = ta.value.substring(s, e);
+                var ins = prefix + sel + suffix;
+                ta.value = ta.value.substring(0, s) + ins + ta.value.substring(e);
+                fireInput(ta);
+                ta.focus();
+                if (sel) {
+                    ta.setSelectionRange(s + prefix.length, s + prefix.length + sel.length);
+                } else {
+                    ta.setSelectionRange(s + prefix.length, s + prefix.length);
+                }
+            };
+            window.articleBodyLine = function(cls, prefix) {
+                var ta = findTA(cls);
+                if (!ta) return;
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                var sel = ta.value.substring(s, e);
+                var out;
+                if (sel) {
+                    out = sel.split('\n').map(function(l) {
+                        return l.length ? prefix + l : l;
+                    }).join('\n');
+                } else {
+                    // No selection — prefix the current line at its start.
+                    var lineStart = ta.value.lastIndexOf('\n', s - 1) + 1;
+                    ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
+                    fireInput(ta);
+                    ta.focus();
+                    ta.setSelectionRange(s + prefix.length, s + prefix.length);
+                    return;
+                }
+                ta.value = ta.value.substring(0, s) + out + ta.value.substring(e);
+                fireInput(ta);
+                ta.focus();
+                ta.setSelectionRange(s, s + out.length);
+            };
+            window.articleBodyLink = function(cls) {
+                var ta = findTA(cls);
+                if (!ta) return;
+                var s = ta.selectionStart, e = ta.selectionEnd;
+                var sel = ta.value.substring(s, e) || 'النص';
+                var ins = '#link("https://")[' + sel + ']';
+                ta.value = ta.value.substring(0, s) + ins + ta.value.substring(e);
+                fireInput(ta);
+                ta.focus();
+                // Park cursor right after `https://` so the user types the URL.
+                var urlEnd = s + ('#link("https://').length;
+                ta.setSelectionRange(urlEnd, urlEnd);
+            };
+        })();
+    """
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
         f"{dark_header_rule} {notify_click_rule}</style>"
-        f"<script>{notify_dismiss_js}</script>",
+        f"<script>{notify_dismiss_js}</script>"
+        f"<script>{article_body_js}</script>",
         shared=True,
     )
 
@@ -1328,9 +1397,46 @@ def _articles_list(meeting: Meeting) -> None:
                         ui.input("العنوان").bind_value(article, "title").classes(
                             "w-full"
                         )
+                        # Unique class on the textarea so the JS helpers
+                        # below can target the right body when there are
+                        # several articles open.
+                        art_class = f"article-body-{index}"
+                        with ui.row().classes("gap-1 items-center"):
+                            ui.button(
+                                icon="format_bold",
+                                on_click=lambda c=art_class: ui.run_javascript(
+                                    f"articleBodyWrap('{c}', '*', '*')"
+                                ),
+                            ).props("flat dense").tooltip("غامق")
+                            ui.button(
+                                icon="format_italic",
+                                on_click=lambda c=art_class: ui.run_javascript(
+                                    f"articleBodyWrap('{c}', '_', '_')"
+                                ),
+                            ).props("flat dense").tooltip("مائل")
+                            ui.button(
+                                icon="format_list_bulleted",
+                                on_click=lambda c=art_class: ui.run_javascript(
+                                    f"articleBodyLine('{c}', '- ')"
+                                ),
+                            ).props("flat dense").tooltip("قائمة نقطية")
+                            ui.button(
+                                icon="format_list_numbered",
+                                on_click=lambda c=art_class: ui.run_javascript(
+                                    f"articleBodyLine('{c}', '+ ')"
+                                ),
+                            ).props("flat dense").tooltip("قائمة مرقمة")
+                            ui.button(
+                                icon="link",
+                                on_click=lambda c=art_class: ui.run_javascript(
+                                    f"articleBodyLink('{c}')"
+                                ),
+                            ).props("flat dense").tooltip("رابط")
                         ui.textarea("الوصف والمناقشة").bind_value(
                             article, "body"
-                        ).props("rows=4 autogrow").classes("w-full")
+                        ).props(
+                            f'rows=4 autogrow input-class="{art_class}"'
+                        ).classes("w-full")
                         ui.textarea("القرار / التوصية").bind_value(
                             article, "decision"
                         ).props("rows=2 autogrow").classes("w-full")
