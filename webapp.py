@@ -253,7 +253,20 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
 
 
+def _is_meeting_dir(src: Path) -> bool:
+    """A saved meeting always has a main.typ entry point. read_meeting is
+    permissive and returns an empty Meeting if files are missing, so we
+    have to check ourselves before calling it."""
+    return (src / "main.typ").is_file()
+
+
 def _open_meeting_at(src: Path) -> None:
+    if not _is_meeting_dir(src):
+        remove_recent_meeting(src)
+        if _recent_menu_refresh is not None:
+            _recent_menu_refresh()
+        _notify(f"الاجتماع غير موجود: {src}", type="negative")
+        return
     try:
         loaded = read_meeting(src)
     except OSError as exc:
@@ -282,6 +295,11 @@ async def _open_meeting() -> None:
     if not paths:
         return
     src = Path(paths[0])
+    if not _is_meeting_dir(src):
+        _notify(
+            f"المجلد المختار لا يحتوي على اجتماع: {src.name}", type="negative"
+        )
+        return
     try:
         loaded = read_meeting(src)
     except OSError as exc:
@@ -500,6 +518,15 @@ def _index() -> None:
                     @ui.refreshable
                     def _recent_items() -> None:
                         recents = load_recent_meetings()
+                        # Prune entries that no longer exist on disk so the
+                        # menu only shows openable meetings. Side-effect: the
+                        # stored list shrinks too, so the user doesn't have to
+                        # × them away manually.
+                        live = [p for p in recents if _is_meeting_dir(p)]
+                        if len(live) != len(recents):
+                            for dead in [p for p in recents if p not in live]:
+                                remove_recent_meeting(dead)
+                        recents = live
                         if not recents:
                             ui.label("لا توجد اجتماعات سابقة").classes(
                                 "p-2 text-sm text-gray-500"
