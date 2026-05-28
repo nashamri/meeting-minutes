@@ -23,7 +23,7 @@ from main import (
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
-from typst_runner import find_typst
+from typst_runner import find_typst, typst_font_dir
 from typst_tables import (
     TableCell,
     TableSpec,
@@ -349,10 +349,15 @@ async def _compile_meeting() -> None:
     preview_dir.mkdir(exist_ok=True)
     svg_template = preview_dir / "page-{0p}.svg"
 
+    font_args: list[str] = []
+    bundled_fonts = typst_font_dir()
+    if bundled_fonts is not None:
+        font_args = ["--font-path", str(bundled_fonts)]
+
     try:
         pdf_result = await asyncio.to_thread(
             subprocess.run,
-            [str(typst_bin), "compile", str(main_typ), str(pdf_path)],
+            [str(typst_bin), "compile", *font_args, str(main_typ), str(pdf_path)],
             capture_output=True,
             encoding="utf-8",
             errors="replace",
@@ -361,7 +366,7 @@ async def _compile_meeting() -> None:
         if pdf_result.returncode == 0:
             svg_result = await asyncio.to_thread(
                 subprocess.run,
-                [str(typst_bin), "compile", str(main_typ), str(svg_template), "--format", "svg"],
+                [str(typst_bin), "compile", *font_args, str(main_typ), str(svg_template), "--format", "svg"],
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace",

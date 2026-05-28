@@ -43,3 +43,20 @@ def find_typst() -> Path | None:
             return c
     sys_path = shutil.which("typst")
     return Path(sys_path) if sys_path else None
+
+
+def typst_font_dir() -> Path | None:
+    """Directory of bundled .ttf/.otf files to pass to `typst --font-path`.
+
+    Returns None if the dir is missing or empty so we don't pass an empty
+    --font-path that would shadow the system font set on the user's machine.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    base = Path(meipass) if meipass else Path(__file__).resolve().parent
+    candidate = base / "assets" / "typst_fonts"
+    if not candidate.is_dir():
+        return None
+    for p in candidate.iterdir():
+        if p.suffix.lower() in (".ttf", ".otf", ".ttc"):
+            return candidate
+    return None
