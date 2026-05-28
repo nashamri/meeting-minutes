@@ -25,8 +25,8 @@ def _copytree_writable(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, copy_function=_copy_writable)
 
 
-def _quote(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
+def _quote(value: str | None) -> str:
+    return (value or "").replace("\\", "\\\\").replace('"', '\\"')
 
 
 _FILENAME_INVALID_CHARS = '/\\\n\r\t\0:*?"<>|'

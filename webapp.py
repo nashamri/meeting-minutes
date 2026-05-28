@@ -76,22 +76,30 @@ def _get_icon_url() -> str | None:
 
 
 def _meeting_fingerprint(m: Meeting) -> str:
+    # ui.select with with_input=True can push None into bound string fields
+    # when empty. Coerce defensively so the join never trips on a None.
     parts: list[str] = [
-        m.name,
-        m.number,
-        m.number_num,
-        m.date,
-        m.time,
-        m.time_digital,
-        m.academic_year,
-        m.approval_text,
-        m.invitees,
-        m.closing_notes,
+        m.name or "",
+        m.number or "",
+        m.number_num or "",
+        m.date or "",
+        m.time or "",
+        m.time_digital or "",
+        m.academic_year or "",
+        m.approval_text or "",
+        m.invitees or "",
+        m.closing_notes or "",
     ]
     for mem in m.members:
-        parts.extend([mem.name, mem.role, mem.attendance, mem.excuse])
+        parts.extend([
+            mem.name or "", mem.role or "",
+            mem.attendance or "", mem.excuse or "",
+        ])
     for art in m.articles:
-        parts.extend([art.title, art.body, art.decision, art.legal_refs, art.target])
+        parts.extend([
+            art.title or "", art.body or "", art.decision or "",
+            art.legal_refs or "", art.target or "",
+        ])
     return hashlib.md5("\x00".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -506,6 +514,72 @@ def _new_meeting() -> None:
     dialog.open()
 
 
+def _apply_duplicate_template() -> None:
+    """Clear per-meeting fields, keep council/template fields.
+
+    Kept: name (committee), academic_year, members, approval_text — these
+    stay constant across meetings of the same body. Cleared: number/date/
+    time/articles/invitees/closing_notes — these are filled in fresh.
+    """
+    global _preview_urls
+    _meeting.number = ""
+    _meeting.number_num = ""
+    _meeting.date = ""
+    _meeting.time = ""
+    _meeting.time_digital = ""
+    _meeting.articles = []
+    _meeting.invitees = ""
+    _meeting.closing_notes = ""
+    _members_list.refresh()
+    _articles_list.refresh()
+    _signatures_preview.refresh()
+    _preview_urls = []
+    _pdf_view.refresh()
+    if _tabs_ref is not None:
+        _tabs_ref.set_value("front")
+    _mark_clean()
+    _notify(
+        "تم نسخ الاجتماع كقالب. أدخل البيانات الجديدة ثم احفظ.",
+        type="positive",
+        timeout=5000,
+    )
+
+
+def _duplicate_as_template() -> None:
+    """Use the currently open meeting as a starting point for a new one.
+
+    Always confirms before discarding the current view: the duplicate clears
+    the article list and date/number, so it's worth a deliberate click even
+    when the meeting is already saved.
+    """
+    dirty = _is_dirty()
+    with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[480px]"):
+        ui.label("نسخ الاجتماع كقالب").classes("text-lg font-semibold")
+        if dirty:
+            body = (
+                "يوجد اجتماع مفتوح بتغييرات غير محفوظة. "
+                "سيُحذف رقم الجلسة، التاريخ، المواضيع، والملاحظات. "
+                "هل تريد المتابعة؟"
+            )
+        else:
+            body = (
+                "سيُحذف رقم الجلسة، التاريخ، المواضيع، والملاحظات، "
+                "وستبقى بيانات المجلس والأعضاء. هل تريد المتابعة؟"
+            )
+        ui.label(body).classes("text-sm")
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+
+            def _ok() -> None:
+                dialog.close()
+                _apply_duplicate_template()
+
+            ui.button("نعم، انسخ", on_click=_ok).props(
+                "unelevated color=warning" if dirty else "unelevated color=primary"
+            )
+    dialog.open()
+
+
 def _is_meeting_dir(src: Path) -> bool:
     """A saved meeting always has a main.typ entry point. read_meeting is
     permissive and returns an empty Meeting if files are missing, so we
@@ -869,6 +943,11 @@ def _index() -> None:
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
+            ui.button(
+                icon="content_copy", on_click=_duplicate_as_template
+            ).props("flat round dense color=white").tooltip(
+                "نسخ الاجتماع كقالب"
+            )
             recent_btn = (
                 ui.button(icon="history")
                 .props("flat round dense color=white")
