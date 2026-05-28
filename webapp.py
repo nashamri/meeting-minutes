@@ -19,6 +19,7 @@ from main import (
     load_recent_meetings,
     load_theme,
     remove_recent_meeting,
+    save_meetings_root,
     save_theme,
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
@@ -501,6 +502,93 @@ def _show_shortcuts() -> None:
     dialog.open()
 
 
+def _open_in_default_editor(path: Path) -> None:
+    """Open path in the OS-default handler — usually the user's text editor
+    for .json. No third-party dep: os.startfile on Windows, `open` on macOS,
+    `xdg-open` on Linux."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except OSError as exc:
+        _notify(f"تعذّر الفتح: {exc}", type="negative")
+
+
+def _open_settings(info: dict) -> None:
+    with ui.dialog() as dialog, ui.card().classes("min-w-[480px] max-w-[640px]"):
+        ui.label("الإعدادات").classes("text-lg font-semibold")
+
+        # Meetings root — the only field worth a structured input. Theme
+        # has its own header button; recent_meetings has the history menu.
+        with ui.column().classes("w-full gap-1"):
+            ui.label("مجلد الاجتماعات").classes("text-sm text-gray-500")
+            with ui.row().classes("w-full items-center gap-2"):
+                root_input = ui.input(value=str(load_meetings_root())).classes(
+                    "flex-1"
+                )
+
+                async def _browse() -> None:
+                    import webview
+
+                    win = app.native.main_window
+                    if win is None:
+                        _notify(
+                            "التصفّح متاح في الوضع الأصلي فقط.",
+                            type="negative",
+                        )
+                        return
+                    dialog_type = (
+                        webview.FileDialog.FOLDER
+                        if hasattr(webview, "FileDialog")
+                        else webview.FOLDER_DIALOG
+                    )
+                    start = root_input.value or str(Path.home())
+                    paths = await win.create_file_dialog(
+                        dialog_type=dialog_type, directory=start
+                    )
+                    if paths:
+                        root_input.value = paths[0]
+
+                ui.button(icon="folder_open", on_click=_browse).props(
+                    "flat dense"
+                ).tooltip("تصفّح")
+            ui.label(
+                "الموقع الافتراضي لحفظ المحاضر الجديدة. لن تُنقل المحاضر الموجودة."
+            ).classes("text-xs text-gray-400")
+
+        # Escape hatch for anything not exposed in the form.
+        with ui.column().classes("w-full gap-1 mt-3"):
+            ui.label("ملف الإعدادات").classes("text-sm text-gray-500")
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.label(info["config_path"]).classes(
+                    "flex-1 text-xs font-mono break-all"
+                )
+                ui.button(
+                    icon="open_in_new",
+                    on_click=lambda: _open_in_default_editor(
+                        Path(info["config_path"])
+                    ),
+                ).props("flat dense").tooltip("فتح في المحرر الافتراضي")
+
+        with ui.row().classes("w-full justify-end mt-3 gap-2"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+
+            def _save() -> None:
+                new_root = (root_input.value or "").strip()
+                if not new_root:
+                    _notify("الرجاء إدخال مسار صالح.", type="negative")
+                    return
+                save_meetings_root(new_root)
+                _notify("تم حفظ الإعدادات.", type="positive")
+                dialog.close()
+
+            ui.button("حفظ", on_click=_save).props("unelevated color=primary")
+    dialog.open()
+
+
 def _open_about(info: dict) -> None:
     with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[500px]"):
         icon_url = _get_icon_url()
@@ -629,6 +717,9 @@ def _index() -> None:
                 .props("flat round dense color=white")
                 .tooltip("تبديل المظهر")
             )
+            ui.button(icon="settings", on_click=lambda: _open_settings(info)).props(
+                "flat round dense color=white"
+            ).tooltip("الإعدادات")
             ui.button(icon="info", on_click=lambda: _open_about(info)).props(
                 "flat round dense color=white"
             ).tooltip("حول")
