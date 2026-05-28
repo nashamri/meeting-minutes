@@ -1000,7 +1000,12 @@ def _index() -> None:
                             )
                             return
                         for p in recents:
-                            with ui.menu_item(on_click=lambda x=p: _open_meeting_at(x)):
+                            with ui.menu_item(
+                                on_click=lambda x=p: (
+                                    _open_meeting_at(x),
+                                    _recent_menu_local.close(),
+                                )
+                            ):
                                 with ui.row().classes(
                                     "w-full items-center justify-between gap-3 min-w-[280px]"
                                 ):
