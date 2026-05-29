@@ -558,6 +558,16 @@ def _register_fonts() -> None:
         "background: #1F2937 !important; "
         "}"
     )
+    # Hide any q-menu that carries the warming-up class so the one-shot
+    # mount we do at startup (to prime Quasar's Teleport target) never
+    # flickers on screen. The class is added before open() and removed
+    # after close() in _warmup_recent_menu.
+    menu_warmup_rule = (
+        ".q-menu.warming-up { "
+        "opacity: 0 !important; "
+        "pointer-events: none !important; "
+        "}"
+    )
     # Subtle background tint on an opened article. Scoped via the direct-
     # child selector so the highlight applies only to the article's outer
     # expansion — the nested "tables" expansion inside an article doesn't
@@ -677,7 +687,8 @@ def _register_fonts() -> None:
     """
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
-        f"{dark_header_rule} {notify_click_rule} {article_open_rule}</style>"
+        f"{dark_header_rule} {notify_click_rule} {article_open_rule} "
+        f"{menu_warmup_rule}</style>"
         f"<script>{notify_dismiss_js}</script>"
         f"<script>{article_body_js}</script>"
         f"<script>{autogrow_refocus_js}</script>",
@@ -1160,6 +1171,37 @@ def _show_shortcuts() -> None:
         with ui.row().classes("w-full justify-end mt-2"):
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
     dialog.open()
+
+
+def _warmup_recent_menu() -> None:
+    """Force Quasar's q-menu to do its first-time Teleport mount + layout
+    before the user ever clicks the recent meetings button.
+
+    Quasar lazily attaches q-menu content into <body> only on the first
+    open, which is what causes the "appears, then jumps into place"
+    behaviour. We do that first mount proactively right after the page
+    settles. The menu_warmup_rule CSS hides anything tagged
+    'warming-up' so the brief open is invisible; we strip the class
+    after a small delay so a real subsequent open animates normally.
+    """
+    if _recent_menu is None:
+        return
+    _recent_menu.classes(add="warming-up")
+    _recent_menu.open()
+
+    def _close_and_unhide() -> None:
+        if _recent_menu is None:
+            return
+        _recent_menu.close()
+        # One more tick before stripping the class — gives the close
+        # transition (if any) time to fully settle in the hidden state.
+        ui.timer(
+            0.1,
+            lambda: _recent_menu.classes(remove="warming-up"),
+            once=True,
+        )
+
+    ui.timer(0.08, _close_and_unhide, once=True)
 
 
 def _subprocess_kwargs() -> dict:
@@ -1666,6 +1708,10 @@ def _index() -> None:
     # Auto-update check — fire once a few seconds after the page has
     # settled so the network call doesn't fight with first paint.
     ui.timer(3.0, _check_for_update, once=True)
+    # Pre-mount the recent meetings menu so the first user-triggered
+    # open doesn't show Quasar's lazy-mount jitter. CSS keeps it
+    # invisible during this warmup window.
+    ui.timer(0.8, _warmup_recent_menu, once=True)
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
