@@ -14,9 +14,11 @@ from nicegui import app, ui
 from main import (
     APP_DISPLAY_NAME,
     add_recent_meeting,
+    add_to_personal_dict,
     clear_recent_meetings,
     get_app_info,
     load_meetings_root,
+    load_personal_dict,
     load_recent_meetings,
     load_theme,
     remove_recent_meeting,
@@ -25,6 +27,11 @@ from main import (
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
+from spell_check_camel import (
+    check_text as camel_check_text,
+    get_suggestions as camel_get_suggestions,
+    is_available as camel_available,
+)
 from typst_runner import find_typst, typst_font_dir
 from typst_tables import (
     TableCell,
@@ -56,6 +63,26 @@ _recent_menu_refresh = None
 _recent_menu = None
 _saved_fingerprint: str | None = None
 _icon_url: str | None = None
+# Per-article spell-check status keyed by id(article). Each entry is the
+# current issue count: 0 → clean (green header), >0 → errors (yellow), and
+# articles absent from the dict are "unchecked" (default blue). Cleared
+# whenever the meeting is reset or a fresh meeting is loaded; otherwise
+# survives drag-reorder (id() is stable per Article object).
+_article_check_status: dict[int, int] = {}
+
+
+def _set_article_status(article, count: int) -> None:
+    _article_check_status[id(article)] = count
+
+
+def _article_status_class(article) -> str:
+    """Header class for the article expansion based on check status."""
+    n = _article_check_status.get(id(article))
+    if n is None:
+        return "text-primary"
+    if n == 0:
+        return "text-positive"
+    return "text-warning"
 
 
 def _get_icon_url() -> str | None:
@@ -540,6 +567,7 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
         setattr(_meeting, attr, getattr(loaded, attr))
     _meeting.members = list(loaded.members)
     _meeting.articles = list(loaded.articles)
+    _article_check_status.clear()
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
@@ -573,6 +601,7 @@ def _reset_to_blank_meeting() -> None:
         setattr(_meeting, attr, getattr(fresh, attr))
     _meeting.members = list(fresh.members)
     _meeting.articles = list(fresh.articles)
+    _article_check_status.clear()
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
@@ -1411,9 +1440,12 @@ def _articles_list(meeting: Meeting) -> None:
             )
             with drop_target:
                 title_preview = (article.title or f"موضوع جديد {index + 1}").strip()
+                # Header colour reflects spell-check status (set in the
+                # dialog): blue=unchecked, green=clean, yellow=has errors.
+                status_class = _article_status_class(article)
                 with (
                     ui.expansion(f"{index + 1}. {title_preview}", icon="description")
-                    .props('header-class="text-weight-bold text-primary"')
+                    .props(f'header-class="text-weight-bold {status_class}"')
                     .classes("w-full")
                 ):
                     with ui.column().classes("w-full gap-3 p-2"):
@@ -1455,6 +1487,10 @@ def _articles_list(meeting: Meeting) -> None:
                                     f"articleBodyLink('{c}')"
                                 ),
                             ).props("flat dense").tooltip("رابط")
+                            ui.button(
+                                icon="spellcheck",
+                                on_click=lambda a=article: _open_spell_check(a),
+                            ).props("flat dense").tooltip("التدقيق الإملائي")
                         ui.textarea("الوصف والمناقشة").bind_value(
                             article, "body"
                         ).props(
@@ -1602,6 +1638,178 @@ def _open_table_editor(article: Article, table_index: int | None, on_save) -> No
 def _add_article(meeting: Meeting) -> None:
     meeting.articles.append(Article())
     _articles_list.refresh()
+
+
+async def _open_spell_check(article: Article) -> None:
+    """Arabic spell-check dialog backed by CAMeL Tools.
+
+    Heavy work (initial morphology DB load, per-check analysis, suggestion
+    generation) runs in a worker thread so the WebSocket heartbeat doesn't
+    time out. Suggestions are lazy-loaded per word — clicking 'اقتراحات'
+    on a row triggers generation only for that word. Apply/ignore edits
+    the in-memory list in place (no full re-check) so the dialog stays
+    snappy.
+    """
+    if not await asyncio.to_thread(camel_available):
+        _notify(
+            "قاعدة بيانات الصرف غير متوفرة. "
+            "نزّلها بأمر: camel_data -i morphology-db-msa-r13",
+            type="negative",
+            multi_line=True,
+        )
+        return
+
+    # `ignored` is session-only; `personal_dict` persists across sessions
+    # via config.json. The check treats them the same — both skip the
+    # analyzer entirely — so we union them when running the check.
+    ignored: set[str] = set()
+    personal_dict: set[str] = load_personal_dict()
+    state: dict = {"issues": [], "loading": True, "loading_word": None}
+    suggestion_cache: dict[str, list[str]] = {}
+
+    with ui.dialog() as dialog, ui.card().classes("min-w-[480px] max-w-[720px]"):
+        ui.label("التدقيق الإملائي (CAMeL)").classes("text-lg font-semibold")
+
+        @ui.refreshable
+        def _issues_panel() -> None:
+            if state["loading"]:
+                with ui.row().classes("items-center gap-2 p-4"):
+                    ui.spinner()
+                    ui.label("جارٍ الفحص...").classes("text-sm")
+                return
+            issues = state["issues"]
+            if not issues:
+                ui.label("لا توجد أخطاء إملائية.").classes(
+                    "text-sm text-positive"
+                )
+                return
+            ui.label(f"عدد المشاكل: {len(issues)}").classes(
+                "text-sm text-gray-500"
+            )
+            with ui.column().classes(
+                "w-full gap-2 max-h-[60vh] overflow-y-auto"
+            ):
+                for issue in issues:
+                    with ui.row().classes(
+                        "w-full items-center gap-2 border-b py-2 no-wrap"
+                    ):
+                        ui.label(issue.word).classes(
+                            "font-bold shrink-0 w-32 truncate"
+                        )
+                        with ui.row().classes(
+                            "flex-1 flex-wrap gap-1 items-center"
+                        ):
+                            if issue.word in suggestion_cache:
+                                sugs = suggestion_cache[issue.word]
+                                if sugs:
+                                    for sug in sugs:
+                                        ui.button(
+                                            sug,
+                                            on_click=(
+                                                lambda s=sug,
+                                                iss=issue: _apply(s, iss)
+                                            ),
+                                        ).props("flat dense no-caps")
+                                else:
+                                    ui.label("لا توجد اقتراحات").classes(
+                                        "text-xs text-gray-500"
+                                    )
+                            elif state["loading_word"] == issue.word:
+                                ui.spinner().classes("text-sm")
+                            else:
+                                ui.button(
+                                    "اقتراحات",
+                                    icon="auto_fix_high",
+                                    on_click=(
+                                        lambda iss=issue: _load_suggestions(iss)
+                                    ),
+                                ).props("flat dense no-caps")
+                        ui.button(
+                            icon="library_add",
+                            on_click=(
+                                lambda w=issue.word: _add_to_dict(w)
+                            ),
+                        ).props("flat dense round").tooltip(
+                            "إضافة للقاموس الخاص"
+                        ).classes("shrink-0")
+                        ui.button(
+                            "تجاهل",
+                            on_click=(
+                                lambda w=issue.word: _ignore(w)
+                            ),
+                        ).props("flat dense").classes("shrink-0")
+
+        async def _run_check() -> None:
+            state["loading"] = True
+            _issues_panel.refresh()
+            issues = await asyncio.to_thread(
+                camel_check_text,
+                article.body or "",
+                ignored | personal_dict,
+            )
+            state["issues"] = issues
+            state["loading"] = False
+            _set_article_status(article, len(issues))
+            _issues_panel.refresh()
+
+        async def _load_suggestions(issue) -> None:
+            if issue.word in suggestion_cache:
+                return
+            state["loading_word"] = issue.word
+            _issues_panel.refresh()
+            sugs = await asyncio.to_thread(
+                camel_get_suggestions, issue.word, 5,
+            )
+            suggestion_cache[issue.word] = sugs
+            state["loading_word"] = None
+            _issues_panel.refresh()
+
+        def _apply(suggestion: str, issue) -> None:
+            body = article.body or ""
+            if not (
+                0 <= issue.start <= len(body)
+                and body[issue.start:issue.end] == issue.word
+            ):
+                _notify("تغيّر النص. أعد الفحص.", type="warning")
+                return
+            delta = len(suggestion) - len(issue.word)
+            article.body = body[:issue.start] + suggestion + body[issue.end:]
+            for other in state["issues"]:
+                if other.start > issue.start:
+                    other.start += delta
+                    other.end += delta
+            state["issues"].remove(issue)
+            _set_article_status(article, len(state["issues"]))
+            _issues_panel.refresh()
+
+        def _ignore(word: str) -> None:
+            ignored.add(word)
+            state["issues"] = [i for i in state["issues"] if i.word != word]
+            _set_article_status(article, len(state["issues"]))
+            _issues_panel.refresh()
+
+        def _add_to_dict(word: str) -> None:
+            personal_dict.add(word)
+            add_to_personal_dict(word)
+            state["issues"] = [i for i in state["issues"] if i.word != word]
+            _set_article_status(article, len(state["issues"]))
+            _issues_panel.refresh()
+            _notify(f"أُضيف للقاموس: {word}", type="positive", timeout=2000)
+
+        _issues_panel()
+
+        with ui.row().classes("w-full justify-end mt-2 gap-2"):
+            ui.button(
+                "إعادة الفحص", icon="refresh",
+                on_click=lambda: _run_check(),
+            ).props("flat")
+            ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+
+    # When the dialog is dismissed (button, X, click-outside) refresh the
+    # articles list so the expansion header picks up the new status colour.
+    dialog.on("hide", lambda _: _articles_list.refresh())
+    dialog.open()
+    await _run_check()
 
 
 def _remove_article(meeting: Meeting, article: Article) -> None:

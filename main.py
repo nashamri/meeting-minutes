@@ -98,6 +98,43 @@ def clear_recent_meetings() -> None:
     save_recent_meetings([])
 
 
+# --- Personal spell-check dictionary ---------------------------------------
+# Words the user explicitly marks as correct in the spell-check dialog.
+# Stored in config.json so they persist across sessions; on every check
+# they're filtered out before the analyzer runs.
+
+
+def load_personal_dict() -> set[str]:
+    raw = _load_config().get("personal_dict", [])
+    if not isinstance(raw, list):
+        return set()
+    return {w for w in raw if isinstance(w, str) and w}
+
+
+def save_personal_dict(words: set[str]) -> None:
+    data = _load_config()
+    data["personal_dict"] = sorted(words)
+    _save_config(data)
+
+
+def add_to_personal_dict(word: str) -> None:
+    word = (word or "").strip()
+    if not word:
+        return
+    words = load_personal_dict()
+    if word in words:
+        return
+    words.add(word)
+    save_personal_dict(words)
+
+
+def remove_from_personal_dict(word: str) -> None:
+    words = load_personal_dict()
+    if word in words:
+        words.discard(word)
+        save_personal_dict(words)
+
+
 def _read_version() -> str:
     try:
         return importlib.metadata.version(APP_NAME)
