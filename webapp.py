@@ -1110,6 +1110,10 @@ _SHORTCUTS = [
     ("التدقيق الإملائي لكل المواضيع", ["Ctrl", "P"]),
     ("نقل الموضوع للأعلى/للأسفل", ["Ctrl", "↑↓"]),
     ("تصدير PDF", ["Ctrl", "E"]),
+    ("بيانات الاجتماع", ["Ctrl", "1"]),
+    ("المواضيع", ["Ctrl", "2"]),
+    ("الاعتماد", ["Ctrl", "3"]),
+    ("معاينة", ["Ctrl", "4"]),
 ]
 
 
@@ -1612,6 +1616,10 @@ def _index() -> None:
             await _check_all_articles(_meeting)
         elif k == "e":
             await _compile_meeting()
+        elif k in ("1", "2", "3", "4") and _tabs_ref is not None:
+            _tabs_ref.set_value(
+                {"1": "front", "2": "articles", "3": "end", "4": "pdf"}[k]
+            )
         elif e.key.arrow_up:
             await _move_focused_article(-1)
         elif e.key.arrow_down:
