@@ -61,6 +61,23 @@ _status_label = None
 _status_history: list[dict] = []
 _drag_state: dict = {"from": None}
 _save_btn = None
+_spellcheck_all_btn = None
+
+
+def _set_spellcheck_all_status(status: str | None) -> None:
+    """Tint the bulk spell-check button to reflect the last run.
+
+    status: 'clean' → green, 'errors' → yellow, None → default (primary).
+    """
+    if _spellcheck_all_btn is None:
+        return
+    if status == "clean":
+        _spellcheck_all_btn._props["color"] = "positive"
+    elif status == "errors":
+        _spellcheck_all_btn._props["color"] = "warning"
+    else:
+        _spellcheck_all_btn._props["color"] = "primary"
+    _spellcheck_all_btn.update()
 _front_tab = None
 _articles_tab = None
 _end_tab = None
@@ -706,6 +723,7 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     _meeting.members = list(loaded.members)
     _meeting.articles = list(loaded.articles)
     _article_check_status.clear()
+    _set_spellcheck_all_status(None)
     global _loaded_meeting_path
     _loaded_meeting_path = Path(src)
     _members_list.refresh()
@@ -744,6 +762,7 @@ def _reset_to_blank_meeting() -> None:
     _meeting.members = list(fresh.members)
     _meeting.articles = list(fresh.articles)
     _article_check_status.clear()
+    _set_spellcheck_all_status(None)
     global _loaded_meeting_path
     _loaded_meeting_path = None
     _members_list.refresh()
@@ -1805,10 +1824,15 @@ def _articles_panel(meeting: Meeting) -> None:
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("المواضيع").classes("text-base font-semibold")
             with ui.row().classes("items-center gap-2"):
-                ui.button(
-                    icon="spellcheck",
-                    on_click=lambda: _check_all_articles(meeting),
-                ).props("dense flat").tooltip("التدقيق الإملائي لكل المواضيع")
+                global _spellcheck_all_btn
+                _spellcheck_all_btn = (
+                    ui.button(
+                        icon="spellcheck",
+                        on_click=lambda: _check_all_articles(meeting),
+                    )
+                    .props("dense flat color=primary")
+                    .tooltip("التدقيق الإملائي لكل المواضيع")
+                )
                 templates_btn = (
                     ui.button(icon="library_books")
                     .props("dense flat")
@@ -2010,12 +2034,14 @@ async def _check_all_articles(meeting: Meeting) -> None:
 
     _articles_list.refresh()
     if issue_count == 0:
+        _set_spellcheck_all_status("clean")
         _notify(
             f"اكتمل الفحص: {total} موضوعاً، لا توجد أخطاء.",
             type="positive",
             timeout=4000,
         )
     else:
+        _set_spellcheck_all_status("errors")
         _notify(
             f"اكتمل الفحص: {clean_count}/{total} نظيف.",
             type="warning",
