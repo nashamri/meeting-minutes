@@ -574,11 +574,26 @@ def _register_fonts() -> None:
             };
         })();
     """
+    # Quasar's autogrow textarea only recalculates height on input events,
+    # so a textarea mounted inside a collapsed q-expansion-item ends up
+    # measured at zero height and stays one row tall when the expansion
+    # opens. Dispatching a synthetic input event on focus retriggers the
+    # autogrow logic, so the textarea snaps to its content size as soon
+    # as the user clicks into it.
+    autogrow_refocus_js = """
+        document.addEventListener('focusin', function(e) {
+            var t = e.target;
+            if (t && t.tagName === 'TEXTAREA') {
+                t.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }, true);
+    """
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
         f"{dark_header_rule} {notify_click_rule}</style>"
         f"<script>{notify_dismiss_js}</script>"
-        f"<script>{article_body_js}</script>",
+        f"<script>{article_body_js}</script>"
+        f"<script>{autogrow_refocus_js}</script>",
         shared=True,
     )
 
@@ -961,6 +976,7 @@ _SHORTCUTS = [
     ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
     ("نسخ كقالب", ["Ctrl", "D"]),
     ("فتح مجلد الاجتماع", ["Ctrl", "F"]),
+    ("التدقيق الإملائي لكل المواضيع", ["Ctrl", "P"]),
     ("تصدير PDF", ["Ctrl", "E"]),
 ]
 
@@ -1273,6 +1289,8 @@ def _index() -> None:
             _duplicate_as_template()
         elif k == "f":
             _open_meeting_folder()
+        elif k == "p":
+            await _check_all_articles(_meeting)
         elif k == "e":
             await _compile_meeting()
 
