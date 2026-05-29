@@ -2336,22 +2336,31 @@ def _open_table_editor(article: Article, table_index: int | None, on_save) -> No
 
         @ui.refreshable
         def grid_view() -> None:
-            while spec.cells and len(spec.cells) % spec.columns != 0:
-                spec.cells.append(TableCell(content="", bracketed=True))
+            # NB: do NOT pad spec.cells here. serialize_table already keeps
+            # the last row rectangular (with colspan-aware math), and any
+            # mutation we do at render time leaks into the saved table —
+            # every open of a table with a merged cell would otherwise
+            # accumulate phantom rows.
             template = columns_to_css(spec.prelude_args, spec.columns)
             with ui.element("div").style(
                 f"display: grid; grid-template-columns: {template}; "
                 "gap: 4px; width: 100%;"
             ):
                 for i, cell in enumerate(spec.cells):
+                    cell_style = ""
+                    if cell.colspan > 1:
+                        # Span the CSS grid so the textarea visually
+                        # occupies the merged width, matching how the
+                        # cell renders in the final typst output.
+                        cell_style = f"grid-column: span {cell.colspan};"
                     ui.textarea(
                         value=cell.content,
                         on_change=lambda e, idx=i: setattr(
                             spec.cells[idx], "content", e.value
                         ),
-                    ).props('autogrow dense outlined dir="auto"').classes(
-                        "w-full tbl-cell"
-                    )
+                    ).props('autogrow dense outlined dir="auto"').style(
+                        cell_style
+                    ).classes("w-full tbl-cell")
 
         grid_view()
 

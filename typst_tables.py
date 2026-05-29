@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 class TableCell:
     content: str
     bracketed: bool = True
+    # Number of columns this cell occupies. 1 for ordinary cells; >1
+    # when content is a `table.cell(colspan: N, …)[…]` expression.
+    # Padding + row chunking in serialize_table use this so a merged
+    # cell at the end of the last row doesn't get a phantom [] appended.
+    colspan: int = 1
 
     def as_source(self) -> str:
         return f"[{self.content}]" if self.bracketed else self.content
@@ -141,14 +146,28 @@ def _parse_columns(value: str) -> int:
     return 1
 
 
+# `colspan: N` inside a table.cell(...) expression. The \b anchors keep
+# it from matching unrelated tokens that happen to contain the substring.
+_COLSPAN_RE = re.compile(r"\bcolspan\s*:\s*(\d+)")
+
+
 def _make_cell(raw: str) -> TableCell:
     raw = raw.strip()
     if raw.startswith("[") and raw.endswith("]"):
         # confirm the brackets balance as outer pair
         inner_end = _find_matching(raw, 1, "[", "]")
         if inner_end == len(raw) - 1:
-            return TableCell(content=raw[1:-1], bracketed=True)
-    return TableCell(content=raw, bracketed=False)
+            return TableCell(content=raw[1:-1], bracketed=True, colspan=1)
+    # Non-bracketed cell: detect colspan so it occupies the right
+    # number of column slots in serialize_table's row math.
+    colspan = 1
+    m = _COLSPAN_RE.search(raw)
+    if m:
+        try:
+            colspan = max(1, int(m.group(1)))
+        except ValueError:
+            colspan = 1
+    return TableCell(content=raw, bracketed=False, colspan=colspan)
 
 
 def find_tables(body: str) -> list[TableSpec]:
@@ -253,8 +272,21 @@ def add_row(spec: TableSpec) -> None:
 
 
 def remove_row(spec: TableSpec) -> None:
-    if len(spec.cells) > spec.columns:
-        del spec.cells[-spec.columns :]
+    """Drop the last row of cells.
+
+    Walks back from the end summing colspan so a merged cell row
+    (e.g. one `table.cell(colspan: 2)`) counts as one row instead of
+    deleting fewer cells than its visual width.
+    """
+    total_width = sum(c.colspan for c in spec.cells)
+    if total_width <= spec.columns:
+        return
+    width = 0
+    i = len(spec.cells)
+    while i > 0 and width < spec.columns:
+        i -= 1
+        width += spec.cells[i].colspan
+    del spec.cells[i:]
 
 
 def add_column(spec: TableSpec) -> None:
@@ -281,17 +313,33 @@ def remove_column(spec: TableSpec) -> None:
 
 def serialize_table(spec: TableSpec) -> str:
     """Render a TableSpec back to canonical `#table(...)` source."""
-    # Pad cells to a multiple of columns so the last row is rectangular.
-    while spec.cells and len(spec.cells) % spec.columns != 0:
+    # Pad to keep the last row rectangular. "Effective width" sums each
+    # cell's colspan so a merged `table.cell(colspan: 2)` counts as 2
+    # and we don't append a phantom [] beside it.
+    total_width = sum(c.colspan for c in spec.cells)
+    while spec.cells and total_width % spec.columns != 0:
         spec.cells.append(TableCell(content="", bracketed=True))
+        total_width += 1
 
     lines: list[str] = ["#table(" if spec.has_hash else "table("]
     for arg in spec.prelude_args:
         lines.append(f"  {arg},")
-    rows = [
-        spec.cells[i : i + spec.columns]
-        for i in range(0, len(spec.cells), spec.columns)
-    ]
+
+    # Chunk rows by accumulating column width — a row with one merged
+    # cell of colspan 2 is still ONE row in the output, not two.
+    rows: list[list[TableCell]] = []
+    current: list[TableCell] = []
+    width = 0
+    for cell in spec.cells:
+        current.append(cell)
+        width += cell.colspan
+        if width >= spec.columns:
+            rows.append(current)
+            current = []
+            width = 0
+    if current:
+        rows.append(current)
+
     for row in rows:
         line = "  " + ", ".join(c.as_source() for c in row) + ","
         lines.append(line)
