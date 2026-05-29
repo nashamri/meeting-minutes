@@ -13,14 +13,17 @@ from nicegui import app, ui
 
 from main import (
     APP_DISPLAY_NAME,
+    add_article_template,
     add_recent_meeting,
     add_to_personal_dict,
     clear_recent_meetings,
     get_app_info,
+    load_article_templates,
     load_meetings_root,
     load_personal_dict,
     load_recent_meetings,
     load_theme,
+    remove_article_template,
     remove_recent_meeting,
     save_meetings_root,
     save_theme,
@@ -61,6 +64,7 @@ _end_tab = None
 _pdf_tab = None
 _recent_menu_refresh = None
 _recent_menu = None
+_templates_menu_refresh = None
 _saved_fingerprint: str | None = None
 _icon_url: str | None = None
 # Per-article spell-check status keyed by id(article). Each entry is the
@@ -642,6 +646,8 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     add_recent_meeting(src)
     if _recent_menu_refresh is not None:
         _recent_menu_refresh()
+    if _templates_menu_refresh is not None:
+        _templates_menu_refresh()
     _mark_clean()
     _notify(f"فُتح: {src.name}", type="positive", timeout=4000)
 
@@ -673,6 +679,8 @@ def _reset_to_blank_meeting() -> None:
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
+    if _templates_menu_refresh is not None:
+        _templates_menu_refresh()
     _preview_urls = []
     _pdf_view.refresh()
     if _tabs_ref is not None:
@@ -1302,9 +1310,22 @@ def _front_matter_panel(meeting: Meeting) -> None:
     with ui.column().classes("w-full gap-4 p-4"):
         ui.label("بيانات الاجتماع").classes("text-base font-semibold")
         with ui.grid(columns=2).classes("w-full gap-3"):
-            ui.input("اسم المجلس / اللجنة").bind_value(meeting, "name").classes(
-                "w-full"
-            )
+            # ui.select with with_input acts as a combobox: pre-populated
+                #     dropdown from known committees (recent meetings +
+                # article-template tags) plus free typing for new names.
+                # new_value_mode='add-unique' lets the typed value become
+                # the selected one without polluting the dropdown options
+                # source (which only updates on the next render anyway).
+            ui.select(
+                options=_get_known_committees(),
+                label="اسم المجلس / اللجنة",
+                with_input=True,
+                new_value_mode="add-unique",
+            ).bind_value(meeting, "name").on_value_change(
+                lambda _: _templates_menu_refresh()
+                if _templates_menu_refresh is not None
+                else None
+            ).classes("w-full")
             with ui.column().classes("w-full gap-0"):
                 num_input = (
                     ui.input(
@@ -1462,10 +1483,158 @@ def _articles_panel(meeting: Meeting) -> None:
                     icon="spellcheck",
                     on_click=lambda: _check_all_articles(meeting),
                 ).props("dense flat").tooltip("التدقيق الإملائي لكل المواضيع")
+                templates_btn = ui.button(icon="library_books").props(
+                    "dense flat"
+                ).tooltip("إضافة من قالب")
+                with templates_btn:
+                    with ui.menu():
+                        _templates_menu(meeting)
                 ui.button(icon="add", on_click=lambda: _add_article(meeting)).props(
                     "dense unelevated"
-                ).tooltip("إضافة موضوع")
+                ).tooltip("إضافة موضوع فارغ")
         _articles_list(meeting)
+
+
+def _templates_menu(meeting: Meeting) -> None:
+    """Menu listing article templates scoped to the current committee.
+
+    Wraps the actual rows in a @ui.refreshable so save/delete operations
+    can repaint the list without re-creating the parent menu. Stores the
+    refresh hook in _templates_menu_refresh so _open_save_article_template
+    and the per-row delete handler can call it.
+    """
+    @ui.refreshable
+    def _items() -> None:
+        current = (meeting.name or "").strip()
+        templates = [
+            t for t in load_article_templates()
+            if (t.get("committee") or "").strip() == current
+        ]
+        if not templates:
+            ui.label("لا توجد قوالب لهذا المجلس بعد.").classes(
+                "p-2 text-sm text-gray-500"
+            )
+            return
+        for t in templates:
+            with ui.menu_item(
+                on_click=lambda tpl=t: _apply_template(meeting, tpl)
+            ):
+                with ui.row().classes(
+                    "w-full items-center justify-between gap-3 min-w-[280px]"
+                ):
+                    ui.label(t.get("name", "")).classes("flex-1")
+                    ui.button(icon="close").props(
+                        "flat round dense size=sm color=negative"
+                    ).tooltip("حذف القالب").on(
+                        "click.stop",
+                        lambda e, tpl=t: (
+                            remove_article_template(
+                                tpl.get("name", ""),
+                                tpl.get("committee", ""),
+                            ),
+                            _items.refresh(),
+                        ),
+                    )
+
+    _items()
+    global _templates_menu_refresh
+    _templates_menu_refresh = _items.refresh
+
+
+def _get_known_committees() -> list[str]:
+    """Committee names harvested from recent meetings and saved templates.
+
+    Recent meetings sit at `<root>/<committee>/<year>/<number>`, so
+    `parts[-3]` of each saved path is the committee. Template entries also
+    carry a committee tag. Returned sorted with empties dropped.
+    """
+    names: set[str] = set()
+    for p in load_recent_meetings():
+        parts = Path(p).parts
+        if len(parts) >= 3:
+            name = parts[-3].strip()
+            if name:
+                names.add(name)
+    for t in load_article_templates():
+        c = (t.get("committee") or "").strip()
+        if c:
+            names.add(c)
+    return sorted(names)
+
+
+def _apply_template(meeting: Meeting, template: dict) -> None:
+    """Spawn a new article from a template.
+
+    Only legal_refs and target are populated from the template — the user
+    fills in title, body, decision per-meeting. Title/body/decision exist
+    as empty keys in the stored JSON so anyone editing config.json can
+    pre-fill them if they want to expand the template later.
+    """
+    article = Article()
+    article.legal_refs = template.get("legal_refs", "") or ""
+    article.target = template.get("target", "") or "المجلس العلمي"
+    # title / body / decision deliberately left at their dataclass defaults
+    meeting.articles.append(article)
+    _articles_list.refresh()
+    _notify(
+        f"أُضيف موضوع من القالب: {template.get('name', '')}",
+        type="positive",
+        timeout=3000,
+    )
+
+
+def _open_save_article_template(article: Article, meeting: Meeting) -> None:
+    """Dialog to save the current article's legal_refs/target as a template.
+
+    Title, body and decision are saved as empty strings — they're meeting-
+    specific and should be filled in per use. The empty keys stay in the
+    JSON so a user editing config.json can populate them if they want.
+    """
+    suggested = (article.title or "").strip()[:60]
+    committee = (meeting.name or "").strip()
+
+    with ui.dialog() as dialog, ui.card().classes("min-w-[380px] max-w-[560px]"):
+        ui.label("حفظ كقالب").classes("text-lg font-semibold")
+        name_input = ui.input(
+            "اسم القالب", value=suggested
+        ).classes("w-full")
+        with ui.row().classes("w-full items-center gap-2 text-sm text-gray-500"):
+            ui.icon("groups").classes("text-base")
+            ui.label(f"المجلس: {committee or '(غير محدد)'}")
+        ui.label(
+            "سيُحفظ المستند والجهة فقط. "
+            "العنوان والوصف والقرار يبقون فارغين لتعبئتهم لكل اجتماع."
+        ).classes("text-xs text-gray-500")
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button("إلغاء", on_click=dialog.close).props("flat")
+
+            def _save() -> None:
+                name = (name_input.value or "").strip()
+                if not name:
+                    _notify("الرجاء إدخال اسم للقالب.", type="negative")
+                    return
+                add_article_template(
+                    name=name,
+                    committee=committee,
+                    title="",
+                    body="",
+                    decision="",
+                    legal_refs=article.legal_refs or "",
+                    target=article.target or "",
+                )
+                if _templates_menu_refresh is not None:
+                    _templates_menu_refresh()
+                dialog.close()
+                _notify(
+                    f"حُفظ القالب: {name}",
+                    type="positive",
+                    timeout=3000,
+                )
+
+            ui.button("حفظ", on_click=_save).props(
+                "unelevated color=primary"
+            )
+    dialog.open()
 
 
 async def _check_all_articles(meeting: Meeting) -> None:
@@ -1663,7 +1832,15 @@ def _articles_list(meeting: Meeting) -> None:
                                 ),
                             ).props("dense unelevated").classes("mt-2")
 
-                        with ui.row().classes("w-full justify-end"):
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button(
+                                "حفظ كقالب",
+                                icon="library_add",
+                                on_click=(
+                                    lambda a=article, m=meeting:
+                                    _open_save_article_template(a, m)
+                                ),
+                            ).props("flat")
                             ui.button(
                                 "حذف الموضوع",
                                 icon="delete",

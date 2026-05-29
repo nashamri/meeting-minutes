@@ -135,6 +135,84 @@ def remove_from_personal_dict(word: str) -> None:
         save_personal_dict(words)
 
 
+# --- Article templates -----------------------------------------------------
+# Reusable per-article presets, each tagged with the committee they belong
+# to (captured from meeting.name when saved). Stored in config.json so they
+# survive across sessions and are manageable via the "open config in editor"
+# button.
+
+
+_TEMPLATE_FIELDS = ("title", "body", "decision", "legal_refs", "target")
+
+
+def load_article_templates() -> list[dict]:
+    raw = _load_config().get("article_templates", [])
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        name = r.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        out.append(r)
+    return out
+
+
+def save_article_templates(templates: list[dict]) -> None:
+    data = _load_config()
+    data["article_templates"] = templates
+    _save_config(data)
+
+
+def add_article_template(
+    name: str,
+    committee: str = "",
+    *,
+    title: str = "",
+    body: str = "",
+    decision: str = "",
+    legal_refs: str = "",
+    target: str = "",
+) -> None:
+    """Save an article template, replacing any existing one with the same
+    (name, committee) pair."""
+    name = (name or "").strip()
+    if not name:
+        return
+    entry = {
+        "name": name,
+        "committee": committee or "",
+        "title": title or "",
+        "body": body or "",
+        "decision": decision or "",
+        "legal_refs": legal_refs or "",
+        "target": target or "",
+    }
+    templates = load_article_templates()
+    for i, t in enumerate(templates):
+        if t.get("name") == name and t.get("committee", "") == (committee or ""):
+            templates[i] = entry
+            save_article_templates(templates)
+            return
+    templates.append(entry)
+    save_article_templates(templates)
+
+
+def remove_article_template(name: str, committee: str = "") -> None:
+    templates = load_article_templates()
+    filtered = [
+        t for t in templates
+        if not (
+            t.get("name") == name
+            and t.get("committee", "") == (committee or "")
+        )
+    ]
+    if len(filtered) != len(templates):
+        save_article_templates(filtered)
+
+
 def _read_version() -> str:
     try:
         return importlib.metadata.version(APP_NAME)
