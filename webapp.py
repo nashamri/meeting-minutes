@@ -1241,9 +1241,15 @@ def _fetch_latest_release_blocking() -> dict | None:
     """Fetch the latest GitHub release for the app's repo. Returns the
     parsed JSON dict, or None on any failure (network, rate limit, etc.).
     Runs synchronously — call via asyncio.to_thread.
+
+    Uses certifi's CA bundle explicitly because Nix-built Pythons
+    (and some PyInstaller-packaged Pythons) don't pick up the system
+    bundle, which makes the default ssl context reject every HTTPS cert.
+    Falls back to the default context if certifi isn't installed.
     """
     import json
     import re
+    import ssl
     import urllib.request
 
     repo_url = get_app_info().get("repo_url", "")
@@ -1252,10 +1258,15 @@ def _fetch_latest_release_blocking() -> dict | None:
         return None
     api = f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases/latest"
     try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
+    try:
         req = urllib.request.Request(
             api, headers={"User-Agent": "meeting-minutes-update-check"}
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
             if resp.status != 200:
                 return None
             return json.loads(resp.read().decode("utf-8"))
