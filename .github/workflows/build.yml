@@ -18,7 +18,7 @@ jobs:
       - name: Set up uv + Python
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -76,7 +76,7 @@ jobs:
       - name: Set up uv + Python
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -150,7 +150,7 @@ jobs:
       - name: Set up uv + Python
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       # AppImage's runtime needs FUSE 2 to mount itself on launch; the
       # ubuntu-latest runner ships FUSE 3 by default.
