@@ -939,16 +939,12 @@ async def _confirm_overwrite(dest: Path) -> bool:
             "يوجد اجتماع محفوظ بنفس المجلس والسنة والرقم. "
             "الحفظ سيستبدل بياناته. هل تريد المتابعة؟"
         ).classes("text-sm")
-        ui.label(str(dest)).classes(
-            "text-xs text-gray-500 font-mono break-all"
-        )
+        ui.label(str(dest)).classes("text-xs text-gray-500 font-mono break-all")
         with ui.row().classes("w-full justify-end gap-2 mt-2"):
-            ui.button(
-                "إلغاء", on_click=lambda: dialog.submit(False)
-            ).props("flat")
-            ui.button(
-                "استبدال", on_click=lambda: dialog.submit(True)
-            ).props("unelevated color=warning")
+            ui.button("إلغاء", on_click=lambda: dialog.submit(False)).props("flat")
+            ui.button("استبدال", on_click=lambda: dialog.submit(True)).props(
+                "unelevated color=warning"
+            )
     result = await dialog
     return bool(result)
 
@@ -962,10 +958,7 @@ async def _save_current_meeting() -> Path | None:
     # When _loaded_meeting_path matches dest, the user is just re-saving
     # the same meeting — no warning needed.
     global _loaded_meeting_path
-    if (
-        _loaded_meeting_path != dest
-        and _is_meeting_dir(dest)
-    ):
+    if _loaded_meeting_path != dest and _is_meeting_dir(dest):
         if not await _confirm_overwrite(dest):
             return None
     try:
@@ -1070,13 +1063,20 @@ def _pdf_view() -> None:
         )
         return
     if _pdf_path is not None and _pdf_path.exists():
-        with ui.row().classes("w-full items-center justify-end gap-2 p-2"):
+        with ui.row().classes("w-full items-center justify-center gap-2 p-2"):
             ui.button(
-                "فتح PDF", icon="open_in_new",
+                "فتح PDF",
+                icon="open_in_new",
                 on_click=lambda: _open_in_default_editor(_pdf_path),
             ).props("flat")
             ui.button(
-                "طباعة", icon="print",
+                "طباعة التواقيع",
+                icon="draw",
+                on_click=_print_last_page,
+            ).props("flat").tooltip("طباعة آخر صفحة فقط")
+            ui.button(
+                "طباعة الكل",
+                icon="print",
                 on_click=lambda: _print_pdf(_pdf_path),
             ).props("flat")
     with ui.column().classes("w-full items-center gap-3 p-2"):
@@ -1148,6 +1148,7 @@ def _fetch_latest_release_blocking() -> dict | None:
     import json
     import re
     import urllib.request
+
     repo_url = get_app_info().get("repo_url", "")
     m = re.search(r"github\.com/([^/]+)/([^/]+)", repo_url)
     if not m:
@@ -1194,15 +1195,116 @@ def _print_pdf(path: Path) -> None:
     """Send a PDF to the system's print pipeline.
 
     Windows uses the file's registered 'print' verb (typically the
-    default PDF viewer). macOS/Linux pipe through `lp` (CUPS).
+    default PDF viewer). macOS/Linux pipe through `lp` (CUPS) — but if
+    that fails (no default printer, CUPS not running, etc.) we surface
+    the error and open the PDF in the default viewer so the user can
+    print from there instead.
     """
-    try:
-        if sys.platform == "win32":
+    if sys.platform == "win32":
+        try:
             os.startfile(str(path), "print")  # noqa: S606
-        else:
-            subprocess.Popen(["lp", str(path)])
-    except OSError as exc:
-        _notify(f"تعذّر الطباعة: {exc}", type="negative")
+        except OSError as exc:
+            _notify(f"تعذّر الطباعة: {exc}", type="negative")
+        return
+
+    try:
+        result = subprocess.run(
+            ["lp", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        _notify(
+            "lp غير مثبت. سيُفتح PDF للطباعة يدوياً.",
+            type="warning",
+            multi_line=True,
+        )
+        _open_in_default_editor(path)
+        return
+    except subprocess.TimeoutExpired:
+        _notify("انتهى وقت الطباعة.", type="negative")
+        return
+
+    if result.returncode == 0:
+        _notify("أُرسلت إلى الطابعة.", type="positive", timeout=3000)
+        return
+
+    # lp ran but rejected the job (commonly "No default destination").
+    # Fall back to opening the PDF so the user can print interactively.
+    err = (result.stderr or result.stdout).strip()
+    _notify(
+        f"تعذّر الإرسال إلى الطابعة. سيُفتح PDF.\n{err}",
+        type="warning",
+        multi_line=True,
+        timeout=6000,
+    )
+    _open_in_default_editor(path)
+
+
+async def _print_last_page() -> None:
+    """Recompile only the last page (signatures) and send it to the printer.
+
+    Uses typst's `--pages` flag against the saved main.typ to produce a
+    one-page PDF in the meeting's _preview folder, then routes it through
+    the same _print_pdf path as the full document. Works the same on
+    every platform without needing a PDF-manipulation dep.
+    """
+    if _pdf_path is None or not _pdf_path.exists():
+        _notify("لم يتم تصدير PDF بعد.", type="negative")
+        return
+    if not _preview_urls:
+        _notify("لا توجد صفحات للطباعة.", type="negative")
+        return
+    main_typ = _pdf_path.parent / "main.typ"
+    if not main_typ.is_file():
+        _notify("main.typ غير موجود.", type="negative")
+        return
+    typst_bin = find_typst()
+    if typst_bin is None:
+        _notify("لم يتم العثور على برنامج typst.", type="negative")
+        return
+
+    page_count = len(_preview_urls)
+    last_pdf = _pdf_path.parent / "_preview" / "last-page.pdf"
+    last_pdf.parent.mkdir(exist_ok=True)
+
+    font_args: list[str] = []
+    bundled_fonts = typst_font_dir()
+    if bundled_fonts is not None:
+        font_args = ["--font-path", str(bundled_fonts), "--ignore-system-fonts"]
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [
+                str(typst_bin),
+                "compile",
+                *font_args,
+                "--pages",
+                str(page_count),
+                str(main_typ),
+                str(last_pdf),
+            ],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        _notify("انتهى وقت تجهيز صفحة التواقيع.", type="negative")
+        return
+
+    if result.returncode != 0:
+        msg = (result.stderr or result.stdout).strip()[:300]
+        _notify(
+            f"تعذّر تجهيز صفحة التواقيع: {msg}",
+            type="negative",
+            multi_line=True,
+        )
+        return
+
+    _print_pdf(last_pdf)
 
 
 def _open_in_default_editor(path: Path) -> None:
@@ -1511,11 +1613,11 @@ def _front_matter_panel(meeting: Meeting) -> None:
         ui.label("بيانات الاجتماع").classes("text-base font-semibold")
         with ui.grid(columns=2).classes("w-full gap-3"):
             # ui.select with with_input acts as a combobox: pre-populated
-                #     dropdown from known committees (recent meetings +
-                # article-template tags) plus free typing for new names.
-                # new_value_mode='add-unique' lets the typed value become
-                # the selected one without polluting the dropdown options
-                # source (which only updates on the next render anyway).
+            #     dropdown from known committees (recent meetings +
+            # article-template tags) plus free typing for new names.
+            # new_value_mode='add-unique' lets the typed value become
+            # the selected one without polluting the dropdown options
+            # source (which only updates on the next render anyway).
             ui.select(
                 options=_get_known_committees(),
                 label="اسم المجلس / اللجنة",
@@ -1683,9 +1785,11 @@ def _articles_panel(meeting: Meeting) -> None:
                     icon="spellcheck",
                     on_click=lambda: _check_all_articles(meeting),
                 ).props("dense flat").tooltip("التدقيق الإملائي لكل المواضيع")
-                templates_btn = ui.button(icon="library_books").props(
-                    "dense flat"
-                ).tooltip("إضافة من قالب")
+                templates_btn = (
+                    ui.button(icon="library_books")
+                    .props("dense flat")
+                    .tooltip("إضافة من قالب")
+                )
                 with templates_btn:
                     with ui.menu():
                         _templates_menu(meeting)
@@ -1703,11 +1807,13 @@ def _templates_menu(meeting: Meeting) -> None:
     refresh hook in _templates_menu_refresh so _open_save_article_template
     and the per-row delete handler can call it.
     """
+
     @ui.refreshable
     def _items() -> None:
         current = (meeting.name or "").strip()
         templates = [
-            t for t in load_article_templates()
+            t
+            for t in load_article_templates()
             if (t.get("committee") or "").strip() == current
         ]
         if not templates:
@@ -1716,9 +1822,7 @@ def _templates_menu(meeting: Meeting) -> None:
             )
             return
         for t in templates:
-            with ui.menu_item(
-                on_click=lambda tpl=t: _apply_template(meeting, tpl)
-            ):
+            with ui.menu_item(on_click=lambda tpl=t: _apply_template(meeting, tpl)):
                 with ui.row().classes(
                     "w-full items-center justify-between gap-3 min-w-[280px]"
                 ):
@@ -1795,9 +1899,7 @@ def _open_save_article_template(article: Article, meeting: Meeting) -> None:
 
     with ui.dialog() as dialog, ui.card().classes("min-w-[380px] max-w-[560px]"):
         ui.label("حفظ كقالب").classes("text-lg font-semibold")
-        name_input = ui.input(
-            "اسم القالب", value=suggested
-        ).classes("w-full")
+        name_input = ui.input("اسم القالب", value=suggested).classes("w-full")
         with ui.row().classes("w-full items-center gap-2 text-sm text-gray-500"):
             ui.icon("groups").classes("text-base")
             ui.label(f"المجلس: {committee or '(غير محدد)'}")
@@ -1831,9 +1933,7 @@ def _open_save_article_template(article: Article, meeting: Meeting) -> None:
                     timeout=3000,
                 )
 
-            ui.button("حفظ", on_click=_save).props(
-                "unelevated color=primary"
-            )
+            ui.button("حفظ", on_click=_save).props("unelevated color=primary")
     dialog.open()
 
 
@@ -2039,8 +2139,8 @@ def _articles_list(meeting: Meeting) -> None:
                                 "حفظ كقالب",
                                 icon="library_add",
                                 on_click=(
-                                    lambda a=article, m=meeting:
-                                    _open_save_article_template(a, m)
+                                    lambda a=article,
+                                    m=meeting: _open_save_article_template(a, m)
                                 ),
                             ).props("flat")
                             ui.button(
