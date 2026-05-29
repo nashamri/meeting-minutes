@@ -23,10 +23,12 @@ from main import (
     load_personal_dict,
     load_recent_meetings,
     load_theme,
+    load_update_last_seen,
     remove_article_template,
     remove_recent_meeting,
     save_meetings_root,
     save_theme,
+    save_update_last_seen,
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
 from typst_io import read_meeting, write_meeting
@@ -53,6 +55,7 @@ from typst_tables import (
 
 _meeting = Meeting()
 _preview_urls: list[str] = []
+_pdf_path: Path | None = None
 _tabs_ref = None
 _status_label = None
 _status_history: list[dict] = []
@@ -380,6 +383,47 @@ def _date_to_display(iso: str) -> str:
         return ""
     y, mo, d = parts
     return f"{int(d)} / {int(mo)} / {y} م"
+
+
+async def _move_focused_article(delta: int) -> None:
+    """Move the article whose form has focus by `delta` positions.
+
+    Walks up from document.activeElement to find an `article-row-N` class
+    on an ancestor. If we find one, mutate the list and refresh. Silent
+    no-op otherwise so Ctrl+Arrow keeps its normal text-cursor behaviour
+    when the user isn't editing an article field.
+    """
+    idx = await ui.run_javascript(
+        "(function(){"
+        " let el=document.activeElement;"
+        " while(el && el!==document.body){"
+        "  if(el.classList){"
+        "   for(const c of el.classList){"
+        "    if(c.startsWith('article-row-')){"
+        "     return parseInt(c.slice('article-row-'.length));"
+        "    }"
+        "   }"
+        "  }"
+        "  el=el.parentElement;"
+        " }"
+        " return null;"
+        "})()"
+    )
+    if not isinstance(idx, int):
+        return
+    arts = _meeting.articles
+    if not (0 <= idx < len(arts)):
+        return
+    new_idx = idx + delta
+    if not (0 <= new_idx < len(arts)):
+        return
+    arts.insert(new_idx, arts.pop(idx))
+    _articles_list.refresh()
+    # Scroll the moved row into view so the user sees what changed.
+    ui.run_javascript(
+        f"document.querySelector('.article-row-{new_idx}')?.scrollIntoView"
+        f"({{behavior:'smooth',block:'center'}})"
+    )
 
 
 def _on_article_drop(to_idx: int) -> None:
@@ -1010,6 +1054,8 @@ async def _compile_meeting() -> None:
         ]
     else:
         _preview_urls = []
+    global _pdf_path
+    _pdf_path = pdf_path if pdf_path.exists() else None
     _pdf_view.refresh()
     if _tabs_ref is not None:
         _tabs_ref.set_value("pdf")
@@ -1023,6 +1069,16 @@ def _pdf_view() -> None:
             "text-sm text-gray-500"
         )
         return
+    if _pdf_path is not None and _pdf_path.exists():
+        with ui.row().classes("w-full items-center justify-end gap-2 p-2"):
+            ui.button(
+                "فتح PDF", icon="open_in_new",
+                on_click=lambda: _open_in_default_editor(_pdf_path),
+            ).props("flat")
+            ui.button(
+                "طباعة", icon="print",
+                on_click=lambda: _print_pdf(_pdf_path),
+            ).props("flat")
     with ui.column().classes("w-full items-center gap-3 p-2"):
         for url in _preview_urls:
             ui.image(url).classes("max-w-3xl w-full border rounded shadow-sm")
@@ -1036,6 +1092,7 @@ _SHORTCUTS = [
     ("نسخ كقالب", ["Ctrl", "D"]),
     ("فتح مجلد الاجتماع", ["Ctrl", "F"]),
     ("التدقيق الإملائي لكل المواضيع", ["Ctrl", "P"]),
+    ("نقل الموضوع للأعلى/للأسفل", ["Ctrl", "↑↓"]),
     ("تصدير PDF", ["Ctrl", "E"]),
 ]
 
@@ -1061,6 +1118,91 @@ def _show_shortcuts() -> None:
         with ui.row().classes("w-full justify-end mt-2"):
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
     dialog.open()
+
+
+def _parse_version(s: str) -> tuple:
+    """Lenient version parser: '1.2.3', 'v1.2.3', '1.2.3-rc1' all work.
+
+    Each dotted segment yields its leading-digit run (so '3-rc1' → 3).
+    Missing segments are treated as 0. The returned tuple is suitable
+    for direct comparison.
+    """
+    s = (s or "").lstrip("vV").strip()
+    parts: list[int] = []
+    for chunk in s.split("."):
+        digits = ""
+        for c in chunk:
+            if c.isdigit():
+                digits += c
+            else:
+                break
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _fetch_latest_release_blocking() -> dict | None:
+    """Fetch the latest GitHub release for the app's repo. Returns the
+    parsed JSON dict, or None on any failure (network, rate limit, etc.).
+    Runs synchronously — call via asyncio.to_thread.
+    """
+    import json
+    import re
+    import urllib.request
+    repo_url = get_app_info().get("repo_url", "")
+    m = re.search(r"github\.com/([^/]+)/([^/]+)", repo_url)
+    if not m:
+        return None
+    api = f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases/latest"
+    try:
+        req = urllib.request.Request(
+            api, headers={"User-Agent": "meeting-minutes-update-check"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status != 200:
+                return None
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+async def _check_for_update() -> None:
+    """One-shot startup check: if GitHub has a newer release than we are
+    AND we haven't notified about it before, show a toast with the link.
+
+    Silent on any failure — no network, GitHub rate limit, malformed
+    response: we just don't bother the user."""
+    info = await asyncio.to_thread(_fetch_latest_release_blocking)
+    if not info:
+        return
+    tag = info.get("tag_name") or ""
+    current = _parse_version(get_app_info().get("version", "0"))
+    latest = _parse_version(tag)
+    last_seen = _parse_version(load_update_last_seen())
+    if not tag or latest <= current or latest <= last_seen:
+        return
+    url = info.get("html_url") or get_app_info().get("repo_url", "")
+    _notify(
+        f"إصدار جديد {tag} متوفر\n{url}",
+        type="info",
+        multi_line=True,
+        timeout=12000,
+    )
+    save_update_last_seen(tag)
+
+
+def _print_pdf(path: Path) -> None:
+    """Send a PDF to the system's print pipeline.
+
+    Windows uses the file's registered 'print' verb (typically the
+    default PDF viewer). macOS/Linux pipe through `lp` (CUPS).
+    """
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(path), "print")  # noqa: S606
+        else:
+            subprocess.Popen(["lp", str(path)])
+    except OSError as exc:
+        _notify(f"تعذّر الطباعة: {exc}", type="negative")
 
 
 def _open_in_default_editor(path: Path) -> None:
@@ -1352,9 +1494,16 @@ def _index() -> None:
             await _check_all_articles(_meeting)
         elif k == "e":
             await _compile_meeting()
+        elif e.key.arrow_up:
+            await _move_focused_article(-1)
+        elif e.key.arrow_down:
+            await _move_focused_article(+1)
 
     ui.keyboard(on_key=_handle_key)
     ui.timer(0.7, _refresh_periodic_state)
+    # Auto-update check — fire once a few seconds after the page has
+    # settled so the network call doesn't fight with first paint.
+    ui.timer(3.0, _check_for_update, once=True)
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
@@ -1767,7 +1916,9 @@ def _articles_list(meeting: Meeting) -> None:
             with handle:
                 ui.icon("drag_indicator")
             handle.on("dragstart", lambda e, i=index: _drag_state.update({"from": i}))
-            drop_target = ui.element("div").classes("flex-1 min-w-0 rounded")
+            drop_target = ui.element("div").classes(
+                f"flex-1 min-w-0 rounded article-row-{index}"
+            )
             drop_target.on("dragover.prevent", lambda e: None)
             drop_target.on(
                 "dragenter", lambda e, el=drop_target: el.classes(add="bg-blue-1")

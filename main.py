@@ -200,6 +200,19 @@ def add_article_template(
     save_article_templates(templates)
 
 
+def load_update_last_seen() -> str:
+    """Tag of the newest release we've already notified about. Empty if
+    we've never told the user anything."""
+    raw = _load_config().get("update_last_seen_version", "")
+    return raw if isinstance(raw, str) else ""
+
+
+def save_update_last_seen(version: str) -> None:
+    data = _load_config()
+    data["update_last_seen_version"] = version or ""
+    _save_config(data)
+
+
 def remove_article_template(name: str, committee: str = "") -> None:
     templates = load_article_templates()
     filtered = [
