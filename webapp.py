@@ -1036,6 +1036,7 @@ async def _compile_meeting() -> None:
     if bundled_fonts is not None:
         font_args = ["--font-path", str(bundled_fonts), "--ignore-system-fonts"]
 
+    sp_kw = _subprocess_kwargs()
     try:
         pdf_result = await asyncio.to_thread(
             subprocess.run,
@@ -1044,6 +1045,7 @@ async def _compile_meeting() -> None:
             encoding="utf-8",
             errors="replace",
             timeout=60,
+            **sp_kw,
         )
         if pdf_result.returncode == 0:
             svg_result = await asyncio.to_thread(
@@ -1061,6 +1063,7 @@ async def _compile_meeting() -> None:
                 encoding="utf-8",
                 errors="replace",
                 timeout=60,
+                **sp_kw,
             )
         else:
             svg_result = None
@@ -1157,6 +1160,19 @@ def _show_shortcuts() -> None:
         with ui.row().classes("w-full justify-end mt-2"):
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
     dialog.open()
+
+
+def _subprocess_kwargs() -> dict:
+    """Extra subprocess kwargs to suppress the transient console window
+    Windows pops for each child process. No-op on macOS/Linux.
+
+    Without CREATE_NO_WINDOW, every typst call from a windowed pywebview
+    parent flashes a console — bad UX during compile/print since multiple
+    typst invocations happen back-to-back.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 
 def _parse_version(s: str) -> tuple:
@@ -1329,6 +1345,7 @@ async def _print_last_page() -> None:
             encoding="utf-8",
             errors="replace",
             timeout=30,
+            **_subprocess_kwargs(),
         )
     except subprocess.TimeoutExpired:
         _notify("انتهى وقت تجهيز صفحة التواقيع.", type="negative")
