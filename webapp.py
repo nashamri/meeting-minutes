@@ -118,15 +118,24 @@ def _meeting_fingerprint(m: Meeting) -> str:
         m.closing_notes or "",
     ]
     for mem in m.members:
-        parts.extend([
-            mem.name or "", mem.role or "",
-            mem.attendance or "", mem.excuse or "",
-        ])
+        parts.extend(
+            [
+                mem.name or "",
+                mem.role or "",
+                mem.attendance or "",
+                mem.excuse or "",
+            ]
+        )
     for art in m.articles:
-        parts.extend([
-            art.title or "", art.body or "", art.decision or "",
-            art.legal_refs or "", art.target or "",
-        ])
+        parts.extend(
+            [
+                art.title or "",
+                art.body or "",
+                art.decision or "",
+                art.legal_refs or "",
+                art.target or "",
+            ]
+        )
     return hashlib.md5("\x00".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -166,16 +175,37 @@ def _meeting_label_for_path(p: Path) -> str:
 # that agrees with it. 11-19 take "X عشرة". 21-99 take "X و-tens" where tens
 # uses the indefinite-of-the-definite cardinal (العشرون, الثلاثون, ...).
 _AR_ORDINAL_FEM_10 = {
-    1: "الأولى", 2: "الثانية", 3: "الثالثة", 4: "الرابعة", 5: "الخامسة",
-    6: "السادسة", 7: "السابعة", 8: "الثامنة", 9: "التاسعة", 10: "العاشرة",
+    1: "الأولى",
+    2: "الثانية",
+    3: "الثالثة",
+    4: "الرابعة",
+    5: "الخامسة",
+    6: "السادسة",
+    7: "السابعة",
+    8: "الثامنة",
+    9: "التاسعة",
+    10: "العاشرة",
 }
 _AR_ONES_FEM_FOR_COMPOUND = {
-    1: "الحادية", 2: "الثانية", 3: "الثالثة", 4: "الرابعة", 5: "الخامسة",
-    6: "السادسة", 7: "السابعة", 8: "الثامنة", 9: "التاسعة",
+    1: "الحادية",
+    2: "الثانية",
+    3: "الثالثة",
+    4: "الرابعة",
+    5: "الخامسة",
+    6: "السادسة",
+    7: "السابعة",
+    8: "الثامنة",
+    9: "التاسعة",
 }
 _AR_TENS = {
-    20: "العشرون", 30: "الثلاثون", 40: "الأربعون", 50: "الخمسون",
-    60: "الستون", 70: "السبعون", 80: "الثمانون", 90: "التسعون",
+    20: "العشرون",
+    30: "الثلاثون",
+    40: "الأربعون",
+    50: "الخمسون",
+    60: "الستون",
+    70: "السبعون",
+    80: "الثمانون",
+    90: "التسعون",
 }
 
 
@@ -210,9 +240,18 @@ def _sync_number_word(meeting: Meeting) -> None:
 # Feminine hours (السَّاعة is feminine), 1-12. _arabic_time_phrase picks the
 # right one from a 24h input.
 _AR_HOURS_FEM_12 = {
-    1: "الواحدة", 2: "الثانية", 3: "الثالثة", 4: "الرابعة",
-    5: "الخامسة", 6: "السادسة", 7: "السابعة", 8: "الثامنة",
-    9: "التاسعة", 10: "العاشرة", 11: "الحادية عشرة", 12: "الثانية عشرة",
+    1: "الواحدة",
+    2: "الثانية",
+    3: "الثالثة",
+    4: "الرابعة",
+    5: "الخامسة",
+    6: "السادسة",
+    7: "السابعة",
+    8: "الثامنة",
+    9: "التاسعة",
+    10: "العاشرة",
+    11: "الحادية عشرة",
+    12: "الثانية عشرة",
 }
 
 
@@ -258,13 +297,27 @@ def _arabic_time_phrase(hhmm: str) -> str:
 
 
 _AR_WEEKDAYS_FULL = {
-    0: "الإثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس",
-    4: "الجمعة", 5: "السبت", 6: "الأحد",
+    0: "الإثنين",
+    1: "الثلاثاء",
+    2: "الأربعاء",
+    3: "الخميس",
+    4: "الجمعة",
+    5: "السبت",
+    6: "الأحد",
 }
 _AR_MONTHS_FULL = {
-    1: "يناير", 2: "فبراير", 3: "مارس", 4: "أبريل",
-    5: "مايو", 6: "يونيو", 7: "يوليو", 8: "أغسطس",
-    9: "سبتمبر", 10: "أكتوبر", 11: "نوفمبر", 12: "ديسمبر",
+    1: "يناير",
+    2: "فبراير",
+    3: "مارس",
+    4: "أبريل",
+    5: "مايو",
+    6: "يونيو",
+    7: "يوليو",
+    8: "أغسطس",
+    9: "سبتمبر",
+    10: "أكتوبر",
+    11: "نوفمبر",
+    12: "ديسمبر",
 }
 
 
@@ -631,9 +684,7 @@ def _new_meeting() -> None:
                 dialog.close()
                 _reset_to_blank_meeting()
 
-            ui.button("تجاهل وابدأ", on_click=_ok).props(
-                "unelevated color=warning"
-            )
+            ui.button("تجاهل وابدأ", on_click=_ok).props("unelevated color=warning")
     dialog.open()
 
 
@@ -961,9 +1012,7 @@ def _open_settings(info: dict) -> None:
         with ui.column().classes("w-full gap-1"):
             ui.label("مجلد الاجتماعات").classes("text-sm text-gray-500")
             with ui.row().classes("w-full items-center gap-2"):
-                root_input = ui.input(value=str(load_meetings_root())).classes(
-                    "flex-1"
-                )
+                root_input = ui.input(value=str(load_meetings_root())).classes("flex-1")
 
                 async def _browse() -> None:
                     import webview
@@ -1003,9 +1052,7 @@ def _open_settings(info: dict) -> None:
                 )
                 ui.button(
                     icon="open_in_new",
-                    on_click=lambda: _open_in_default_editor(
-                        Path(info["config_path"])
-                    ),
+                    on_click=lambda: _open_in_default_editor(Path(info["config_path"])),
                 ).props("flat dense").tooltip("فتح في المحرر الافتراضي")
 
         with ui.row().classes("w-full justify-end mt-3 gap-2"):
@@ -1085,11 +1132,9 @@ def _index() -> None:
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
-            ui.button(
-                icon="content_copy", on_click=_duplicate_as_template
-            ).props("flat round dense color=white").tooltip(
-                "نسخ الاجتماع كقالب"
-            )
+            ui.button(icon="content_copy", on_click=_duplicate_as_template).props(
+                "flat round dense color=white"
+            ).tooltip("نسخ الاجتماع كقالب")
             recent_btn = (
                 ui.button(icon="history")
                 .props("flat round dense color=white")
@@ -1243,16 +1288,18 @@ def _front_matter_panel(meeting: Meeting) -> None:
                 "w-full"
             )
             with ui.column().classes("w-full gap-0"):
-                num_input = ui.input(
-                    "رقم الجلسة",
-                    validation={
-                        "يجب أن يكون عدداً صحيحاً":
-                        lambda v: not v or v.strip().isdigit()
-                    },
-                ).bind_value(meeting, "number_num").classes("w-full")
-                word_preview = ui.label().classes(
-                    "text-xs text-gray-500 px-2 pt-1"
+                num_input = (
+                    ui.input(
+                        "رقم الجلسة",
+                        validation={
+                            "يجب أن يكون عدداً صحيحاً": lambda v: not v
+                            or v.strip().isdigit()
+                        },
+                    )
+                    .bind_value(meeting, "number_num")
+                    .classes("w-full")
                 )
+                word_preview = ui.label().classes("text-xs text-gray-500 px-2 pt-1")
 
                 def _refresh_word_preview() -> None:
                     _sync_number_word(meeting)
@@ -1282,9 +1329,7 @@ def _front_matter_panel(meeting: Meeting) -> None:
                     if lbl is None:
                         return
                     if meeting.time_digital and meeting.time:
-                        lbl.text = (
-                            f"الوقت: {meeting.time_digital} ({meeting.time})"
-                        )
+                        lbl.text = f"الوقت: {meeting.time_digital} ({meeting.time})"
                     elif meeting.time_digital:
                         lbl.text = f"الوقت: {meeting.time_digital}"
                     else:
@@ -1296,18 +1341,14 @@ def _front_matter_panel(meeting: Meeting) -> None:
                     .classes("w-full") as date_input
                 ):
                     with date_input.add_slot("append"):
-                        datetime_icon = ui.icon("event").classes(
-                            "cursor-pointer"
-                        )
+                        datetime_icon = ui.icon("event").classes("cursor-pointer")
                         _date_picker_holder: dict = {"picker": None}
 
                         def _set_date_title(iso: str) -> None:
                             picker = _date_picker_holder["picker"]
                             if picker is None:
                                 return
-                            picker._props["title"] = (
-                                _arabic_full_date(iso) or " "
-                            )
+                            picker._props["title"] = _arabic_full_date(iso) or " "
                             picker.update()
 
                         def _on_date_change(e) -> None:
@@ -1321,20 +1362,18 @@ def _front_matter_panel(meeting: Meeting) -> None:
                         # q-menu anchors to the icon element, whose pixel
                         # position drifts between QtWebEngine builds.
                         with ui.dialog() as datetime_dialog:
-                            with ui.card().classes("p-2").style(
-                                "max-width: none; width: max-content"
+                            with (
+                                ui.card()
+                                .classes("p-2")
+                                .style("max-width: none; width: max-content")
                             ):
-                                with ui.row().classes(
-                                    "items-start gap-2 flex-nowrap"
-                                ):
+                                with ui.row().classes("items-start gap-2 flex-nowrap"):
                                     date_picker = ui.date(
                                         value=_date_from_display(meeting.date),
                                         on_change=_on_date_change,
                                     )
                                     _date_picker_holder["picker"] = date_picker
-                                    _set_date_title(
-                                        _date_from_display(meeting.date)
-                                    )
+                                    _set_date_title(_date_from_display(meeting.date))
                                     ui.time(
                                         on_change=lambda _: _refresh_time_preview()
                                     ).bind_value(meeting, "time_digital")
@@ -1347,9 +1386,9 @@ def _front_matter_panel(meeting: Meeting) -> None:
                     "text-xs text-gray-500 px-2 pt-1"
                 )
                 _refresh_time_preview()
-            ui.input("السنة الأكاديمية").bind_value(
-                meeting, "academic_year"
-            ).classes("w-full")
+            ui.input("السنة الأكاديمية").bind_value(meeting, "academic_year").classes(
+                "w-full"
+            )
 
         # ui.separator()
 
@@ -1400,10 +1439,70 @@ def _articles_panel(meeting: Meeting) -> None:
     with ui.column().classes("w-full gap-4 p-4"):
         with ui.row().classes("w-full items-center justify-between"):
             ui.label("المواضيع").classes("text-base font-semibold")
-            ui.button(icon="add", on_click=lambda: _add_article(meeting)).props(
-                "dense unelevated"
-            ).tooltip("إضافة موضوع")
+            with ui.row().classes("items-center gap-2"):
+                ui.button(
+                    icon="spellcheck",
+                    on_click=lambda: _check_all_articles(meeting),
+                ).props("dense flat").tooltip("التدقيق الإملائي لكل المواضيع")
+                ui.button(icon="add", on_click=lambda: _add_article(meeting)).props(
+                    "dense unelevated"
+                ).tooltip("إضافة موضوع")
         _articles_list(meeting)
+
+
+async def _check_all_articles(meeting: Meeting) -> None:
+    """Spell-check every article body in one sweep, updating header colours.
+
+    Runs the analyzer off-thread per article so the WebSocket heartbeat
+    keeps ticking. Doesn't open a dialog — the only feedback is the row
+    headers turning green/yellow as each article completes, plus a
+    summary toast at the end.
+    """
+    if not meeting.articles:
+        _notify("لا توجد مواضيع للفحص.", type="warning", timeout=2000)
+        return
+    if not await asyncio.to_thread(camel_available):
+        _notify(
+            "قاعدة بيانات الصرف غير متوفرة. "
+            "نزّلها بأمر: camel_data -i morphology-db-msa-r13",
+            type="negative",
+            multi_line=True,
+        )
+        return
+
+    # Use each article's persisted personal dictionary so the bulk pass
+    # respects the same exclusions the per-article dialog would.
+    personal_dict = load_personal_dict()
+
+    total = len(meeting.articles)
+    clean_count = 0
+    issue_count = 0
+    _notify(f"جارٍ فحص {total} موضوعاً...", type="info", timeout=2000)
+
+    for article in meeting.articles:
+        issues = await asyncio.to_thread(
+            camel_check_text, article.body or "", personal_dict
+        )
+        n = len(issues)
+        _set_article_status(article, n)
+        if n == 0:
+            clean_count += 1
+        else:
+            issue_count += n
+
+    _articles_list.refresh()
+    if issue_count == 0:
+        _notify(
+            f"اكتمل الفحص: {total} موضوعاً، لا توجد أخطاء.",
+            type="positive",
+            timeout=4000,
+        )
+    else:
+        _notify(
+            f"اكتمل الفحص: {clean_count}/{total} نظيف.",
+            type="warning",
+            timeout=5000,
+        )
 
 
 @ui.refreshable
@@ -1493,9 +1592,9 @@ def _articles_list(meeting: Meeting) -> None:
                             ).props("flat dense").tooltip("التدقيق الإملائي")
                         ui.textarea("الوصف والمناقشة").bind_value(
                             article, "body"
-                        ).props(
-                            f'rows=4 autogrow input-class="{art_class}"'
-                        ).classes("w-full")
+                        ).props(f'rows=4 autogrow input-class="{art_class}"').classes(
+                            "w-full"
+                        )
                         ui.textarea("القرار / التوصية").bind_value(
                             article, "decision"
                         ).props("rows=2 autogrow").classes("w-full")
@@ -1668,7 +1767,7 @@ async def _open_spell_check(article: Article) -> None:
     suggestion_cache: dict[str, list[str]] = {}
 
     with ui.dialog() as dialog, ui.card().classes("min-w-[480px] max-w-[720px]"):
-        ui.label("التدقيق الإملائي (CAMeL)").classes("text-lg font-semibold")
+        ui.label("التدقيق الإملائي").classes("text-lg font-semibold")
 
         @ui.refreshable
         def _issues_panel() -> None:
@@ -1679,26 +1778,16 @@ async def _open_spell_check(article: Article) -> None:
                 return
             issues = state["issues"]
             if not issues:
-                ui.label("لا توجد أخطاء إملائية.").classes(
-                    "text-sm text-positive"
-                )
+                ui.label("لا توجد أخطاء إملائية.").classes("text-sm text-positive")
                 return
-            ui.label(f"عدد المشاكل: {len(issues)}").classes(
-                "text-sm text-gray-500"
-            )
-            with ui.column().classes(
-                "w-full gap-2 max-h-[60vh] overflow-y-auto"
-            ):
+            ui.label(f"عدد المشاكل: {len(issues)}").classes("text-sm text-gray-500")
+            with ui.column().classes("w-full gap-2 max-h-[60vh] overflow-y-auto"):
                 for issue in issues:
                     with ui.row().classes(
                         "w-full items-center gap-2 border-b py-2 no-wrap"
                     ):
-                        ui.label(issue.word).classes(
-                            "font-bold shrink-0 w-32 truncate"
-                        )
-                        with ui.row().classes(
-                            "flex-1 flex-wrap gap-1 items-center"
-                        ):
+                        ui.label(issue.word).classes("font-bold shrink-0 w-32 truncate")
+                        with ui.row().classes("flex-1 flex-wrap gap-1 items-center"):
                             if issue.word in suggestion_cache:
                                 sugs = suggestion_cache[issue.word]
                                 if sugs:
@@ -1706,8 +1795,7 @@ async def _open_spell_check(article: Article) -> None:
                                         ui.button(
                                             sug,
                                             on_click=(
-                                                lambda s=sug,
-                                                iss=issue: _apply(s, iss)
+                                                lambda s=sug, iss=issue: _apply(s, iss)
                                             ),
                                         ).props("flat dense no-caps")
                                 else:
@@ -1720,23 +1808,17 @@ async def _open_spell_check(article: Article) -> None:
                                 ui.button(
                                     "اقتراحات",
                                     icon="auto_fix_high",
-                                    on_click=(
-                                        lambda iss=issue: _load_suggestions(iss)
-                                    ),
+                                    on_click=(lambda iss=issue: _load_suggestions(iss)),
                                 ).props("flat dense no-caps")
                         ui.button(
                             icon="library_add",
-                            on_click=(
-                                lambda w=issue.word: _add_to_dict(w)
-                            ),
+                            on_click=(lambda w=issue.word: _add_to_dict(w)),
                         ).props("flat dense round").tooltip(
                             "إضافة للقاموس الخاص"
                         ).classes("shrink-0")
                         ui.button(
                             "تجاهل",
-                            on_click=(
-                                lambda w=issue.word: _ignore(w)
-                            ),
+                            on_click=(lambda w=issue.word: _ignore(w)),
                         ).props("flat dense").classes("shrink-0")
 
         async def _run_check() -> None:
@@ -1758,7 +1840,9 @@ async def _open_spell_check(article: Article) -> None:
             state["loading_word"] = issue.word
             _issues_panel.refresh()
             sugs = await asyncio.to_thread(
-                camel_get_suggestions, issue.word, 5,
+                camel_get_suggestions,
+                issue.word,
+                5,
             )
             suggestion_cache[issue.word] = sugs
             state["loading_word"] = None
@@ -1768,12 +1852,12 @@ async def _open_spell_check(article: Article) -> None:
             body = article.body or ""
             if not (
                 0 <= issue.start <= len(body)
-                and body[issue.start:issue.end] == issue.word
+                and body[issue.start : issue.end] == issue.word
             ):
                 _notify("تغيّر النص. أعد الفحص.", type="warning")
                 return
             delta = len(suggestion) - len(issue.word)
-            article.body = body[:issue.start] + suggestion + body[issue.end:]
+            article.body = body[: issue.start] + suggestion + body[issue.end :]
             for other in state["issues"]:
                 if other.start > issue.start:
                     other.start += delta
@@ -1800,7 +1884,8 @@ async def _open_spell_check(article: Article) -> None:
 
         with ui.row().classes("w-full justify-end mt-2 gap-2"):
             ui.button(
-                "إعادة الفحص", icon="refresh",
+                "إعادة الفحص",
+                icon="refresh",
                 on_click=lambda: _run_check(),
             ).props("flat")
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
@@ -1835,9 +1920,9 @@ def _end_matter_panel(meeting: Meeting) -> None:
         # ui.separator()
 
         ui.label("المدعوين").classes("text-base font-semibold")
-        ui.textarea().bind_value(meeting, "invitees").props(
-            "rows=3 autogrow"
-        ).classes("w-full")
+        ui.textarea().bind_value(meeting, "invitees").props("rows=3 autogrow").classes(
+            "w-full"
+        )
         ui.label("الإضافات والملحوظات").classes("text-base font-semibold")
         ui.textarea().bind_value(meeting, "closing_notes").props(
             "rows=4 autogrow"
