@@ -1132,6 +1132,12 @@ def _index() -> None:
             ui.button(icon="folder_open", on_click=_open_meeting).props(
                 "flat round dense color=white"
             ).tooltip("فتح")
+            global _save_btn
+            _save_btn = (
+                ui.button(icon="save", on_click=_save_current_meeting)
+                .props("flat round dense color=white")
+                .tooltip("حفظ")
+            )
             ui.button(icon="content_copy", on_click=_duplicate_as_template).props(
                 "flat round dense color=white"
             ).tooltip("نسخ الاجتماع كقالب")
@@ -1196,12 +1202,6 @@ def _index() -> None:
             global _recent_menu_refresh, _recent_menu
             _recent_menu_refresh = _recent_items.refresh
             _recent_menu = _recent_menu_local
-            global _save_btn
-            _save_btn = (
-                ui.button(icon="save", on_click=_save_current_meeting)
-                .props("flat round dense color=white")
-                .tooltip("حفظ")
-            )
             ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
                 "flat round dense color=white"
             ).tooltip("تصدير PDF")
