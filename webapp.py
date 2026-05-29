@@ -541,6 +541,22 @@ def _register_fonts() -> None:
         "background: #1F2937 !important; "
         "}"
     )
+    # Subtle background tint on an opened article. Scoped via the direct-
+    # child selector so the highlight applies only to the article's outer
+    # expansion — the nested "tables" expansion inside an article doesn't
+    # get its own tint when opened. Transition smooths the open/close.
+    article_open_rule = (
+        "[class*='article-row-'] > .q-expansion-item { "
+        "transition: background-color 0.2s ease; "
+        "border-radius: 6px; "
+        "} "
+        "[class*='article-row-'] > .q-expansion-item--expanded { "
+        "background-color: rgba(0, 0, 0, 0.035); "
+        "} "
+        "body.body--dark [class*='article-row-'] > .q-expansion-item--expanded { "
+        "background-color: rgba(255, 255, 255, 0.04); "
+        "}"
+    )
     # Make notifications clickable to dismiss: cursor hint + a document-level
     # handler that triggers Quasar's own close button (so its dismissal
     # lifecycle stays intact). Skip the trigger if the user already clicked
@@ -644,7 +660,7 @@ def _register_fonts() -> None:
     """
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
-        f"{dark_header_rule} {notify_click_rule}</style>"
+        f"{dark_header_rule} {notify_click_rule} {article_open_rule}</style>"
         f"<script>{notify_dismiss_js}</script>"
         f"<script>{article_body_js}</script>"
         f"<script>{autogrow_refocus_js}</script>",
