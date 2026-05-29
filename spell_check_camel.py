@@ -20,6 +20,7 @@ Setup once:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -27,6 +28,26 @@ import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+
+def _bundled_camel_data_dir() -> Path:
+    """Where the bundled morphology DB lives.
+
+    In a PyInstaller bundle, assets unpack to _MEIPASS; in dev they sit
+    next to the source. CAMeL Tools reads its data location from the
+    CAMELTOOLS_DATA env var (see camel_tools/data/catalogue.py).
+    """
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / "assets" / "camel_tools_data"
+
+
+# Set CAMELTOOLS_DATA BEFORE any camel_tools import so the catalogue picks
+# up our bundled path on first read. The env var only matters at the time
+# camel_tools.data.catalogue is imported — we do this at module load
+# instead of inside _get_analyzer().
+_BUNDLED_DATA = _bundled_camel_data_dir()
+if _BUNDLED_DATA.is_dir() and "CAMELTOOLS_DATA" not in os.environ:
+    os.environ["CAMELTOOLS_DATA"] = str(_BUNDLED_DATA)
 
 # Match runs of Arabic-block characters. The block also contains
 # punctuation (،؛؟), digits (٠-٩), and signs, so we strip those off the
