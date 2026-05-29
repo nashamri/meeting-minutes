@@ -21,15 +21,18 @@ linux = [
 meeting-minutes = "main:main"
 
 [tool.uv]
-# camel-tools pins transformers==4.43.4 which pulls tokenizers==0.19.1 —
-# that wheel has a broken pyproject.toml uv can't parse. Override to a
-# newer tokenizers known to build cleanly.
-#
-# camel-kenlm is a C-extension wrapper around KenLM that doesn't compile
-# against Python 3.13+ (uses removed CPython internals). It's only used
-# by camel-tools' disambiguator, which we don't touch for spell-check.
-# A marker that's never satisfied effectively removes it from resolution.
+# camel-tools' transitive deps include transformers → torch → the CUDA
+# libraries (~5 GB of installs) and scikit-learn — none of which the
+# morphology analyzer touches. Skip them with markers that can never be
+# satisfied so uv drops them from resolution. Same trick for camel-kenlm
+# (broken on Python 3.13+).
 override-dependencies = [
-    "tokenizers>=0.20",
     "camel-kenlm; python_version < '3.0'",
+    "transformers; python_version < '3.0'",
+    "torch; python_version < '3.0'",
+    "tokenizers; python_version < '3.0'",
+    "scikit-learn; python_version < '3.0'",
+    "huggingface-hub; python_version < '3.0'",
+    "triton; python_version < '3.0'",
+    "safetensors; python_version < '3.0'",
 ]
