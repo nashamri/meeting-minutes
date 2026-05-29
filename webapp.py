@@ -1461,6 +1461,16 @@ async def _check_all_articles(meeting: Meeting) -> None:
     if not meeting.articles:
         _notify("لا توجد مواضيع للفحص.", type="warning", timeout=2000)
         return
+
+    # Show the progress toast BEFORE any heavy work so the user gets
+    # immediate feedback. camel_available() can take 1-2s on first call
+    # (triggers the morphology DB load); don't make that delay the
+    # "جارٍ فحص..." notification. asyncio.sleep(0) yields to the loop so
+    # the notify message flushes to the browser before we start checking.
+    total = len(meeting.articles)
+    _notify(f"جارٍ فحص {total} موضوعاً...", type="info", timeout=4000)
+    await asyncio.sleep(0)
+
     if not await asyncio.to_thread(camel_available):
         _notify(
             "قاعدة بيانات الصرف غير متوفرة. "
@@ -1473,11 +1483,8 @@ async def _check_all_articles(meeting: Meeting) -> None:
     # Use each article's persisted personal dictionary so the bulk pass
     # respects the same exclusions the per-article dialog would.
     personal_dict = load_personal_dict()
-
-    total = len(meeting.articles)
     clean_count = 0
     issue_count = 0
-    _notify(f"جارٍ فحص {total} موضوعاً...", type="info", timeout=2000)
 
     for article in meeting.articles:
         issues = await asyncio.to_thread(
