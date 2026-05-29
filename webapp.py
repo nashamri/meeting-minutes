@@ -66,6 +66,12 @@ _recent_menu_refresh = None
 _recent_menu = None
 _templates_menu_refresh = None
 _saved_fingerprint: str | None = None
+# Path the current meeting was last loaded from or saved to. Used by
+# _save_current_meeting to detect when the user is about to overwrite a
+# DIFFERENT meeting that happens to share the same (committee, year,
+# number) path — e.g. they typed a number that collides with an existing
+# meeting. None means "never persisted" (brand-new or just-reset state).
+_loaded_meeting_path: Path | None = None
 _icon_url: str | None = None
 # Per-article spell-check status keyed by id(article). Each entry is the
 # current issue count: 0 → clean (green header), >0 → errors (yellow), and
@@ -640,6 +646,8 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     _meeting.members = list(loaded.members)
     _meeting.articles = list(loaded.articles)
     _article_check_status.clear()
+    global _loaded_meeting_path
+    _loaded_meeting_path = Path(src)
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
@@ -676,6 +684,8 @@ def _reset_to_blank_meeting() -> None:
     _meeting.members = list(fresh.members)
     _meeting.articles = list(fresh.articles)
     _article_check_status.clear()
+    global _loaded_meeting_path
+    _loaded_meeting_path = None
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
@@ -718,7 +728,7 @@ def _apply_duplicate_template() -> None:
     stay constant across meetings of the same body. Cleared: number/date/
     time/articles/invitees/closing_notes — these are filled in fresh.
     """
-    global _preview_urls
+    global _preview_urls, _loaded_meeting_path
     _meeting.number = ""
     _meeting.number_num = ""
     _meeting.date = ""
@@ -727,6 +737,10 @@ def _apply_duplicate_template() -> None:
     _meeting.articles = []
     _meeting.invitees = ""
     _meeting.closing_notes = ""
+    # The duplicate is a NEW meeting, not a copy that lives at the
+    # original's path — clearing this lets the collision check warn if
+    # the user picks a number that already exists.
+    _loaded_meeting_path = None
     _members_list.refresh()
     _articles_list.refresh()
     _signatures_preview.refresh()
@@ -870,15 +884,52 @@ def _open_meeting_folder() -> None:
     _open_in_default_editor(dest)
 
 
-def _save_current_meeting() -> Path | None:
+async def _confirm_overwrite(dest: Path) -> bool:
+    """Modal confirmation when about to overwrite an existing meeting dir.
+
+    Returns True if the user clicks the warning-coloured 'استبدال' button.
+    """
+    with ui.dialog() as dialog, ui.card().classes("min-w-[360px] max-w-[540px]"):
+        ui.label("اجتماع بنفس الرقم موجود").classes("text-lg font-semibold")
+        ui.label(
+            "يوجد اجتماع محفوظ بنفس المجلس والسنة والرقم. "
+            "الحفظ سيستبدل بياناته. هل تريد المتابعة؟"
+        ).classes("text-sm")
+        ui.label(str(dest)).classes(
+            "text-xs text-gray-500 font-mono break-all"
+        )
+        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+            ui.button(
+                "إلغاء", on_click=lambda: dialog.submit(False)
+            ).props("flat")
+            ui.button(
+                "استبدال", on_click=lambda: dialog.submit(True)
+            ).props("unelevated color=warning")
+    result = await dialog
+    return bool(result)
+
+
+async def _save_current_meeting() -> Path | None:
     dest = _resolve_meeting_dest()
     if dest is None:
         return None
+    # Collision check: only warn if the dest is a different folder than
+    # the one we're tracking AND it already looks like a meeting on disk.
+    # When _loaded_meeting_path matches dest, the user is just re-saving
+    # the same meeting — no warning needed.
+    global _loaded_meeting_path
+    if (
+        _loaded_meeting_path != dest
+        and _is_meeting_dir(dest)
+    ):
+        if not await _confirm_overwrite(dest):
+            return None
     try:
         write_meeting(_meeting, dest)
     except OSError as exc:
         _notify(f"تعذّر الحفظ: {exc}", type="negative")
         return None
+    _loaded_meeting_path = dest
     add_recent_meeting(dest)
     if _recent_menu_refresh is not None:
         _recent_menu_refresh()
@@ -888,7 +939,7 @@ def _save_current_meeting() -> Path | None:
 
 
 async def _compile_meeting() -> None:
-    dest = _save_current_meeting()
+    dest = await _save_current_meeting()
     if dest is None:
         return
     typst_bin = find_typst()
@@ -1285,7 +1336,7 @@ def _index() -> None:
         if k == "n":
             _new_meeting()
         elif k == "s":
-            _save_current_meeting()
+            await _save_current_meeting()
         elif k == "o":
             await _open_meeting()
         elif k == "r":
