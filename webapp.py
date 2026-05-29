@@ -1756,6 +1756,13 @@ async def _open_spell_check(article: Article) -> None:
     the in-memory list in place (no full re-check) so the dialog stays
     snappy.
     """
+    # Immediate feedback — the first camel_available() call triggers a
+    # 1-2s morphology DB load, which otherwise leaves the user staring
+    # at a frozen UI before the dialog opens. yield once so NiceGUI
+    # flushes the toast before we start the blocking work.
+    _notify("جارٍ فحص الموضوع...", type="info", timeout=4000)
+    await asyncio.sleep(0)
+
     if not await asyncio.to_thread(camel_available):
         _notify(
             "قاعدة بيانات الصرف غير متوفرة. "
