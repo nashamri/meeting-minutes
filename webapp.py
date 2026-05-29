@@ -83,6 +83,10 @@ _articles_tab = None
 _end_tab = None
 _pdf_tab = None
 _recent_menu_refresh = None
+# Populated by _check_for_update when GitHub reports a newer release.
+# The _update_button refreshable reads this and renders the toolbar
+# button when a tag is set; until then the slot is empty.
+_update_available: dict = {"tag": "", "url": ""}
 _recent_menu = None
 _templates_menu_refresh = None
 _saved_fingerprint: str | None = None
@@ -1275,8 +1279,10 @@ def _fetch_latest_release_blocking() -> dict | None:
 
 
 async def _check_for_update() -> None:
-    """One-shot startup check: if GitHub has a newer release than we are
-    AND we haven't notified about it before, show a toast with the link.
+    """Startup check: if GitHub has a newer release than we are, surface
+    a persistent header button. Also fire a one-shot toast on the first
+    session that detects this specific version (debounced via the
+    update_last_seen_version key in config.json).
 
     Silent on any failure — no network, GitHub rate limit, malformed
     response: we just don't bother the user."""
@@ -1286,17 +1292,45 @@ async def _check_for_update() -> None:
     tag = info.get("tag_name") or ""
     current = _parse_version(get_app_info().get("version", "0"))
     latest = _parse_version(tag)
-    last_seen = _parse_version(load_update_last_seen())
-    if not tag or latest <= current or latest <= last_seen:
+    if not tag or latest <= current:
         return
+
     url = info.get("html_url") or get_app_info().get("repo_url", "")
-    _notify(
-        f"إصدار جديد {tag} متوفر\n{url}",
-        type="info",
-        multi_line=True,
-        timeout=12000,
+    # Persistent state: show the header button every session until the
+    # user actually upgrades and `current` catches up.
+    _update_available["tag"] = tag
+    _update_available["url"] = url
+    _update_button.refresh()
+
+    # One-shot toast: only the first session that sees this version
+    # nags via a notification. last_seen suppresses repeat toasts.
+    last_seen = _parse_version(load_update_last_seen())
+    if latest > last_seen:
+        _notify(
+            f"إصدار جديد {tag} متوفر\n{url}",
+            type="info",
+            multi_line=True,
+            timeout=12000,
+        )
+        save_update_last_seen(tag)
+
+
+@ui.refreshable
+def _update_button() -> None:
+    """Toolbar button that appears only when a newer release exists.
+
+    Renders nothing in the common case; materialises in the header
+    after _check_for_update populates _update_available. Clicking opens
+    the release URL in the user's default browser.
+    """
+    if not _update_available.get("url"):
+        return
+    ui.button(
+        icon="system_update_alt",
+        on_click=lambda: webbrowser.open(_update_available["url"]),
+    ).props("flat round dense color=warning").tooltip(
+        f"تحديث متوفر: {_update_available['tag']}"
     )
-    save_update_last_seen(tag)
 
 
 def _print_pdf(path: Path) -> None:
@@ -1554,6 +1588,7 @@ def _index() -> None:
                 ui.image(icon_url).classes("w-8 h-8")
             ui.label(APP_DISPLAY_NAME).classes("text-lg font-semibold")
         with ui.row().classes("items-center gap-1"):
+            _update_button()
             ui.button(icon="note_add", on_click=_new_meeting).props(
                 "flat round dense color=white"
             ).tooltip("اجتماع جديد")
