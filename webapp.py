@@ -1144,7 +1144,8 @@ def _pdf_view() -> None:
 
 
 _SHORTCUTS = [
-    ("اجتماع جديد", ["Ctrl", "N"]),
+    ("موضوع جديد", ["Ctrl", "N"]),
+    ("اجتماع جديد", ["Ctrl", "Shift", "N"]),
     ("حفظ", ["Ctrl", "S"]),
     ("فتح", ["Ctrl", "O"]),
     ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
@@ -1728,7 +1729,13 @@ def _index() -> None:
             return
         k = (e.key.name or "").lower()
         if k == "n":
-            _new_meeting()
+            # Ctrl+Shift+N keeps the original "new meeting" behaviour;
+            # plain Ctrl+N is the much higher-frequency "add an article
+            # to the current meeting" action.
+            if e.modifiers.shift:
+                _new_meeting()
+            else:
+                _add_article(_meeting)
         elif k == "s":
             await _save_current_meeting()
         elif k == "o":
