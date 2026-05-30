@@ -14,11 +14,13 @@ from nicegui import app, ui
 from main import (
     APP_DISPLAY_NAME,
     add_article_template,
+    add_known_targets,
     add_recent_meeting,
     add_to_personal_dict,
     clear_recent_meetings,
     get_app_info,
     load_article_templates,
+    load_known_targets,
     load_meetings_root,
     load_personal_dict,
     load_recent_meetings,
@@ -1018,6 +1020,10 @@ async def _save_current_meeting() -> Path | None:
         return None
     _loaded_meeting_path = dest
     add_recent_meeting(dest)
+    # Harvest every non-empty article target into the config-persisted
+    # list so it shows up in the autocomplete on the next render — both
+    # for new articles in this meeting and for any future meeting.
+    add_known_targets([a.target for a in _meeting.articles if a.target])
     if _recent_menu_refresh is not None:
         _recent_menu_refresh()
     _mark_clean()
@@ -2023,6 +2029,26 @@ def _get_known_committees() -> list[str]:
     return sorted(names)
 
 
+def _get_known_targets() -> list[str]:
+    """Candidates for the article 'الجهة ذات العلاقة' combobox.
+
+    Pulls from three sources: targets persisted to config.json on save,
+    target values stored on article templates, and any targets already
+    typed into the current meeting's other articles. Sorted, deduped,
+    empties dropped.
+    """
+    names: set[str] = set(load_known_targets())
+    for t in load_article_templates():
+        v = (t.get("target") or "").strip()
+        if v:
+            names.add(v)
+    for a in _meeting.articles:
+        v = (a.target or "").strip()
+        if v:
+            names.add(v)
+    return sorted(names)
+
+
 def _apply_template(meeting: Meeting, template: dict) -> None:
     """Spawn a new article from a template.
 
@@ -2256,9 +2282,17 @@ def _articles_list(meeting: Meeting) -> None:
                         ui.textarea("مستند القرار").bind_value(
                             article, "legal_refs"
                         ).props("rows=2 autogrow").classes("w-full")
-                        ui.input("الجهة ذات العلاقة").bind_value(
-                            article, "target"
-                        ).classes("w-full")
+                        # Combobox over previously-used targets (config-
+                        # persisted, harvested at save time) plus template
+                        # targets and any target typed elsewhere in this
+                        # meeting. Free text still allowed via with_input
+                        # + add-unique, same as the committee field.
+                        ui.select(
+                            options=_get_known_targets(),
+                            label="الجهة ذات العلاقة",
+                            with_input=True,
+                            new_value_mode="add-unique",
+                        ).bind_value(article, "target").classes("w-full")
 
                         tables = find_tables(article.body)
                         with ui.expansion(

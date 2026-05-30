@@ -200,6 +200,33 @@ def add_article_template(
     save_article_templates(templates)
 
 
+# --- Known article targets -------------------------------------------------
+# Distinct values seen in the "الجهة ذات العلاقة" (target) field, harvested
+# every time a meeting is saved. Drives the combobox autocomplete on the
+# article target input so the same body names don't have to be retyped.
+
+
+def load_known_targets() -> list[str]:
+    raw = _load_config().get("known_targets", [])
+    if not isinstance(raw, list):
+        return []
+    return sorted({t for t in raw if isinstance(t, str) and t.strip()})
+
+
+def add_known_targets(targets: list[str] | set[str]) -> None:
+    cleaned = {(t or "").strip() for t in targets}
+    cleaned.discard("")
+    if not cleaned:
+        return
+    existing = set(load_known_targets())
+    merged = existing | cleaned
+    if merged == existing:
+        return
+    data = _load_config()
+    data["known_targets"] = sorted(merged)
+    _save_config(data)
+
+
 def load_update_last_seen() -> str:
     """Tag of the newest release we've already notified about. Empty if
     we've never told the user anything."""
