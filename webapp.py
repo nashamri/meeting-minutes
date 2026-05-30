@@ -2269,7 +2269,21 @@ def _index() -> None:
         if not e.modifiers.ctrl:
             return
 
-        name = (e.key.name or "").lower()
+        # Resolve the shortcut letter/digit from the layout-INDEPENDENT
+        # physical key code, not from e.key.name (which is the typed
+        # character and changes per layout). This is what makes Ctrl+S
+        # still fire "حفظ" while the user has the Arabic keyboard
+        # active: the physical S key always reports code="KeyS"
+        # regardless of whether it produces 's' or 'س'. Falls back to
+        # e.key.name for keys that don't have a Key*/Digit* code
+        # (e.g. the arrow keys, handled separately below).
+        code = e.key.code or ""
+        if code.startswith("Key") and len(code) == 4:
+            name = code[3].lower()
+        elif code.startswith("Digit") and len(code) == 6:
+            name = code[5]
+        else:
+            name = (e.key.name or "").lower()
 
         # Ctrl+Shift+P is the command palette itself — handled before the
         # generic registry lookup so it can't be shadowed by anything.
