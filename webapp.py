@@ -111,6 +111,54 @@ def _set_article_status(article, count: int) -> None:
     _article_check_status[id(article)] = count
 
 
+# Marker syntax for collapsed tables in the body textarea: ⟦جدول N⟧.
+# The brackets are mathematical white square brackets (U+27E6/27E7) —
+# rare enough in typed text that the user is unlikely to produce or
+# break them by accident, but they read cleanly in an Arabic context.
+# Numbers are 1-indexed by the order tables appear in the body.
+_TABLE_PLACEHOLDER_RE = re.compile(r"⟦جدول\s+(\d+)⟧")
+
+
+def _body_to_display(body: str) -> tuple[str, dict[int, str]]:
+    """Hide each #table(...) block behind a ⟦جدول N⟧ marker.
+
+    Returns (display, sources) where display is the body the user
+    actually sees in the textarea, and sources[i] is the raw Typst
+    source of the i-th table so _display_to_body can substitute it
+    back when the user's edits flow into article.body.
+    """
+    if not body:
+        return body, {}
+    tables = find_tables(body)
+    if not tables:
+        return body, {}
+    sorted_tables = sorted(tables, key=lambda t: t.raw_start)
+    parts: list[str] = []
+    sources: dict[int, str] = {}
+    pos = 0
+    for i, t in enumerate(sorted_tables, start=1):
+        parts.append(body[pos:t.raw_start])
+        parts.append(f"⟦جدول {i}⟧")
+        sources[i] = body[t.raw_start:t.raw_end]
+        pos = t.raw_end
+    parts.append(body[pos:])
+    return "".join(parts), sources
+
+
+def _display_to_body(display: str, sources: dict[int, str]) -> str:
+    """Restore raw Typst sources for every ⟦جدول N⟧ marker in display.
+
+    If a marker's number doesn't appear in `sources` (e.g. the user
+    edited the digits, or typed a marker with no backing table) it's
+    silently replaced with an empty string — i.e. that table is dropped.
+    Deleting a marker is the documented way to delete the underlying
+    table from the body.
+    """
+    def _sub(m: re.Match) -> str:
+        return sources.get(int(m.group(1)), "")
+    return _TABLE_PLACEHOLDER_RE.sub(_sub, display)
+
+
 def _article_status_class(article) -> str:
     """Header class for the article expansion based on check status."""
     n = _article_check_status.get(id(article))
@@ -2646,9 +2694,27 @@ def _articles_list(meeting: Meeting) -> None:
                                 icon="spellcheck",
                                 on_click=lambda a=article: _open_spell_check(a),
                             ).props("flat dense").tooltip("التدقيق الإملائي")
-                        ui.textarea().bind_value(article, "body").props(
+                        # Compute the body the user sees: every #table(...)
+                        # block is collapsed to a ⟦جدول N⟧ marker so the
+                        # textarea is readable as prose. table_sources
+                        # captures the raw source per marker so that as
+                        # the user edits we can substitute the markers
+                        # back when writing to article.body. Recomputed
+                        # on every article re-render so reordering /
+                        # renumbering across articles propagates here.
+                        display_body, table_sources = _body_to_display(
+                            article.body or ""
+                        )
+                        body_state = {"sources": table_sources}
+                        body_input = ui.textarea(value=display_body).props(
                             f'rows=4 autogrow input-class="{art_class}"'
                         ).classes("w-full")
+                        body_input.on_value_change(
+                            lambda e, a=article, st=body_state: setattr(
+                                a, "body",
+                                _display_to_body(e.value or "", st["sources"]),
+                            )
+                        )
 
                         with ui.row().classes(
                             "w-full items-center gap-2 mt-1"
@@ -2773,31 +2839,138 @@ def _open_table_editor(article: Article, table_index: int | None, on_save) -> No
                         cell_style
                     ).classes("w-full tbl-cell")
 
-        grid_view()
+        # Live mirror of the Typst-tab textarea. Re-seeded on every code-view
+        # refresh; updated on every keystroke via the textarea's
+        # on_value_change. Both the explicit "تطبيق" button and the
+        # implicit auto-apply paths (tab-switch away, save) read from
+        # this so any in-flight edits are captured.
+        code_state = {"text": serialize_table(spec)}
 
-        with ui.row().classes("w-full items-center gap-2 mt-3"):
-            ui.button(
-                "صف +",
-                icon="add",
-                on_click=lambda: (add_row(spec), grid_view.refresh()),
-            ).props("dense outline")
-            ui.button(
-                "صف -",
-                icon="remove",
-                on_click=lambda: (remove_row(spec), grid_view.refresh()),
-            ).props("dense outline")
-            ui.button(
-                "عمود +",
-                icon="add",
-                on_click=lambda: (add_column(spec), grid_view.refresh()),
-            ).props("dense outline")
-            ui.button(
-                "عمود -",
-                icon="remove",
-                on_click=lambda: (remove_column(spec), grid_view.refresh()),
-            ).props("dense outline")
+        def _apply_source(text: str, *, silent: bool = False) -> bool:
+            """Parse `text` as Typst source and overwrite the spec in place.
+
+            Returns True on success, False if the source couldn't be
+            parsed into at least one table. When silent=True (used by
+            the auto-apply paths) we still notify on errors but suppress
+            the success toast — explicit apply via the button stays
+            chatty so the user sees something happen.
+            """
+            try:
+                parsed_specs = find_tables(text)
+            except Exception as exc:
+                _notify(f"خطأ في تحليل المصدر: {exc}", type="negative")
+                return False
+            if not parsed_specs:
+                _notify(
+                    "لم يُعثر على جدول في المصدر.",
+                    type="negative",
+                )
+                return False
+            # Mutate spec in place so the grid_view + _save closures keep
+            # working — only structural fields are reset; raw_start /
+            # raw_end stay (they reference the original location in
+            # article.body and _save's replace_table_in_body still
+            # targets them).
+            new_spec = parsed_specs[0]
+            spec.prelude_args = new_spec.prelude_args
+            spec.columns = new_spec.columns
+            spec.cells = new_spec.cells
+            spec.has_hash = new_spec.has_hash
+            code_state["text"] = serialize_table(spec)
+            if not silent:
+                _notify("تم تطبيق المصدر.", type="positive", timeout=2000)
+            grid_view.refresh()
+            return True
+
+        def _maybe_apply_pending() -> bool:
+            """Auto-apply edits the user hasn't manually committed.
+
+            Called on tab-switch away from the code tab and on save.
+            If the textarea matches the current spec (no pending edits)
+            we no-op. If parsing fails the caller can use the return
+            value to abort whatever it was about to do (e.g. cancel
+            the save).
+            """
+            if code_state["text"] == serialize_table(spec):
+                return True
+            return _apply_source(code_state["text"], silent=True)
+
+        @ui.refreshable
+        def code_view() -> None:
+            # Re-sync the textarea + state from the current spec on every
+            # refresh (tab-switch into code, after a successful apply,
+            # after grid-side row/col edits).
+            code_state["text"] = serialize_table(spec)
+            with ui.column().classes("w-full gap-2"):
+                # Direction-forced LTR and a monospace font on the inner
+                # textarea, because Typst source with Arabic cell content
+                # would otherwise be flipped to RTL by dir="auto".
+                src_input = (
+                    ui.textarea(value=code_state["text"])
+                    .props(
+                        'autogrow dense outlined dir="ltr" '
+                        'input-style="font-family: monospace;"'
+                    )
+                    .classes("w-full")
+                )
+                src_input.on_value_change(
+                    lambda e: code_state.update(text=e.value or "")
+                )
+                ui.label(
+                    "تُطبَّق التعديلات تلقائياً عند الحفظ أو التبديل لتبويب الجدول."
+                ).classes("text-xs text-gray-500")
+
+        with ui.tabs().classes("w-full") as editor_tabs:
+            grid_tab = ui.tab("grid", label="جدول", icon="grid_on")
+            code_tab = ui.tab("code", label="مصدر Typst", icon="code")
+
+        # On tab-switch INTO the code tab: refresh so the source reflects
+        # any grid-side edits. On tab-switch AWAY (i.e. into the grid
+        # tab): auto-apply any pending textarea edits so the grid shows
+        # the user's source-level changes immediately.
+        def _on_tab_change(e) -> None:
+            if e.value == "code":
+                code_view.refresh()
+            else:
+                _maybe_apply_pending()
+
+        editor_tabs.on_value_change(_on_tab_change)
+
+        with ui.tab_panels(editor_tabs, value=grid_tab).classes("w-full"):
+            with ui.tab_panel(grid_tab):
+                grid_view()
+                with ui.row().classes("w-full items-center gap-2 mt-3"):
+                    ui.button(
+                        "صف +",
+                        icon="add",
+                        on_click=lambda: (add_row(spec), grid_view.refresh()),
+                    ).props("dense outline")
+                    ui.button(
+                        "صف -",
+                        icon="remove",
+                        on_click=lambda: (remove_row(spec), grid_view.refresh()),
+                    ).props("dense outline")
+                    ui.button(
+                        "عمود +",
+                        icon="add",
+                        on_click=lambda: (add_column(spec), grid_view.refresh()),
+                    ).props("dense outline")
+                    ui.button(
+                        "عمود -",
+                        icon="remove",
+                        on_click=lambda: (remove_column(spec), grid_view.refresh()),
+                    ).props("dense outline")
+            with ui.tab_panel(code_tab):
+                code_view()
 
         def _save() -> None:
+            # Commit any pending source-tab edits before serializing.
+            # If the textarea contains invalid Typst, _maybe_apply_pending
+            # surfaces the error and returns False — abort the save so
+            # the user can fix it instead of silently writing the old
+            # spec.
+            if not _maybe_apply_pending():
+                return
             new_src = serialize_table(spec)
             if table_index is None:
                 article.body = append_table_to_body(article.body, new_src)
