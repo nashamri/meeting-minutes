@@ -1797,12 +1797,17 @@ def _index() -> None:
     dark = ui.dark_mode(value=is_dark)
     _apply_theme_colors(is_dark)
 
+    # Set after the "more" menu is built; toggle_theme calls it so the
+    # in-menu theme icon flips to match the new mode.
+    _more_menu_refresh: Callable[[], None] | None = None
+
     def toggle_theme() -> None:
         new_value = not dark.value
         dark.set_value(new_value)
         _apply_theme_colors(new_value)
         save_theme("dark" if new_value else "light")
-        theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
+        if _more_menu_refresh is not None:
+            _more_menu_refresh()
 
     def _switch_tab(name: str) -> None:
         if _tabs_ref is not None:
@@ -1929,20 +1934,52 @@ def _index() -> None:
             ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
                 "flat round dense color=white"
             ).tooltip("تصدير PDF")
-            theme_btn = (
-                ui.button(
-                    icon="light_mode" if dark.value else "dark_mode",
-                    on_click=toggle_theme,
-                )
+            # Theme + settings + about are infrequent compared to the
+            # save/open/export actions, so they sit behind a single
+            # overflow button to declutter the toolbar.
+            more_btn = (
+                ui.button(icon="more_vert")
                 .props("flat round dense color=white")
-                .tooltip("تبديل المظهر")
+                .tooltip("المزيد")
             )
-            ui.button(icon="settings", on_click=lambda: _open_settings(info)).props(
-                "flat round dense color=white"
-            ).tooltip("الإعدادات")
-            ui.button(icon="info", on_click=lambda: _open_about(info)).props(
-                "flat round dense color=white"
-            ).tooltip("حول")
+            with more_btn:
+                with ui.menu():
+
+                    @ui.refreshable
+                    def _more_menu_items() -> None:
+                        is_dark_now = dark.value
+                        with ui.menu_item(on_click=toggle_theme):
+                            with ui.row().classes(
+                                "items-center gap-3 min-w-[200px]"
+                            ):
+                                ui.icon(
+                                    "light_mode" if is_dark_now else "dark_mode"
+                                )
+                                ui.label(
+                                    "الوضع الفاتح"
+                                    if is_dark_now
+                                    else "الوضع الداكن"
+                                )
+                        with ui.menu_item(
+                            on_click=lambda: _open_settings(info)
+                        ):
+                            with ui.row().classes(
+                                "items-center gap-3 min-w-[200px]"
+                            ):
+                                ui.icon("settings")
+                                ui.label("الإعدادات")
+                        with ui.menu_item(
+                            on_click=lambda: _open_about(info)
+                        ):
+                            with ui.row().classes(
+                                "items-center gap-3 min-w-[200px]"
+                            ):
+                                ui.icon("info")
+                                ui.label("حول التطبيق")
+
+                    _more_menu_items()
+
+            _more_menu_refresh = _more_menu_items.refresh
 
     global _tabs_ref, _front_tab, _articles_tab, _end_tab, _pdf_tab
     with ui.tabs().classes("w-full") as tabs:
