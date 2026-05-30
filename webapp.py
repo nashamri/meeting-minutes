@@ -2193,7 +2193,15 @@ def _index() -> None:
                 .tooltip("المزيد")
             )
             with more_btn:
-                with ui.menu():
+                # Scale-in transition hides the brief mount + position
+                # gap during Quasar's lazy Teleport: the menu starts at
+                # scale 0 (invisible) so the user never sees it briefly
+                # rendered at (0,0) before Quasar measures and snaps it
+                # into place. Same trick applied to the templates and
+                # article-kebab menus below.
+                with ui.menu().props(
+                    "transition-show=scale transition-duration=150"
+                ):
 
                     @ui.refreshable
                     def _more_menu_items() -> None:
@@ -2514,7 +2522,9 @@ def _articles_panel(meeting: Meeting) -> None:
                     .tooltip("إضافة من قالب")
                 )
                 with templates_btn:
-                    with ui.menu():
+                    with ui.menu().props(
+                        "transition-show=scale transition-duration=150"
+                    ):
                         _templates_menu(meeting)
                 ui.button(icon="add", on_click=lambda: _add_article(meeting)).props(
                     "dense unelevated"
@@ -2819,7 +2829,9 @@ def _articles_list(meeting: Meeting) -> None:
                         )
                         kebab.on("click.stop", lambda: None)
                         with kebab:
-                            with ui.menu():
+                            with ui.menu().props(
+                                "transition-show=scale transition-duration=150"
+                            ):
                                 with ui.menu_item(
                                     on_click=(
                                         lambda a=article,
