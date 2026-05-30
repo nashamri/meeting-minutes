@@ -592,6 +592,15 @@ def _register_fonts() -> None:
         "} "
         "body.body--dark [class*='article-row-'] > .q-expansion-item--expanded { "
         "background-color: rgba(255, 255, 255, 0.04); "
+        "} "
+        # Trim the wide trailing space after Quasar's expand-icon side
+        # section on the article header. Direct-child traversal keeps
+        # nested expansions (e.g. the tables expansion inside an article)
+        # at their default spacing.
+        "[class*='article-row-'] > .q-expansion-item "
+        "> .q-expansion-item__container > .q-item "
+        "> .q-item__section--side { "
+        "padding-left: 4px; min-width: auto; "
         "}"
     )
     # Make notifications clickable to dismiss: cursor hint + a document-level
@@ -2516,14 +2525,72 @@ def _articles_list(meeting: Meeting) -> None:
             )
             with drop_target:
                 title_preview = (article.title or f"موضوع جديد {index + 1}").strip()
-                # Header colour reflects spell-check status (set in the
-                # dialog): blue=unchecked, green=clean, yellow=has errors.
+                # Header colour reflects spell-check status: blue=unchecked,
+                # green=clean (no issues found), yellow=has errors. Applied
+                # to the custom header row below so the title + status icon
+                # share one accent.
                 status_class = _article_status_class(article)
-                with (
-                    ui.expansion(f"{index + 1}. {title_preview}", icon="description")
-                    .props(f'header-class="text-weight-bold {status_class}"')
+                exp = (
+                    ui.expansion()
+                    .props("expand-separator")
                     .classes("w-full")
-                ):
+                )
+                # --- Custom header: title + overflow menu (kebab) ---------
+                # Replaces the default q-expansion-item header so we can
+                # tuck the destructive + template-save actions behind a
+                # menu instead of leaving them as equal-weight buttons
+                # at the bottom of the open body. Clicks on the kebab
+                # use click.stop so they don't toggle the expansion.
+                with exp.add_slot("header"):
+                    # flex-1 (not w-full) so Quasar's expand-icon side
+                    # section stays at the trailing edge of the q-item
+                    # instead of being pushed past it by a 100%-width
+                    # row. min-w-0 + ellipsis on the label is the
+                    # standard flexbox fix to make long titles clip
+                    # instead of growing the row — without it, every
+                    # article header height tracked the title length
+                    # and threw the chevron/kebab vertical centers off.
+                    with ui.row().classes(
+                        f"flex-1 items-center no-wrap gap-2 min-w-0 {status_class}"
+                    ):
+                        ui.icon("description")
+                        ui.label(
+                            f"{index + 1}. {title_preview}"
+                        ).classes("flex-1 min-w-0 ellipsis text-weight-bold")
+
+                        kebab = (
+                            ui.button(icon="more_vert")
+                            .props("flat dense round size=sm")
+                        )
+                        kebab.on("click.stop", lambda: None)
+                        with kebab:
+                            with ui.menu():
+                                with ui.menu_item(
+                                    on_click=(
+                                        lambda a=article,
+                                        m=meeting: _open_save_article_template(a, m)
+                                    )
+                                ):
+                                    with ui.row().classes(
+                                        "items-center gap-3 min-w-[180px]"
+                                    ):
+                                        ui.icon("library_add")
+                                        ui.label("حفظ كقالب")
+                                with ui.menu_item(
+                                    on_click=lambda a=article: _confirm(
+                                        "تأكيد الحذف",
+                                        f"هل تريد حذف الموضوع: «{(a.title.strip() or 'بدون عنوان')[:80]}»؟",
+                                        lambda art=a: _remove_article(meeting, art),
+                                    )
+                                ).classes("text-negative"):
+                                    with ui.row().classes(
+                                        "items-center gap-3 min-w-[180px]"
+                                    ):
+                                        ui.icon("delete")
+                                        ui.label("حذف الموضوع")
+
+                # --- Body --------------------------------------------------
+                with exp:
                     with ui.column().classes("w-full gap-3 p-2"):
                         ui.input("العنوان").bind_value(article, "title").classes(
                             "w-full"
@@ -2532,7 +2599,19 @@ def _articles_list(meeting: Meeting) -> None:
                         # below can target the right body when there are
                         # several articles open.
                         art_class = f"article-body-{index}"
-                        with ui.row().classes("gap-1 items-center"):
+                        # Section header doubles as the formatting toolbar
+                        # owner — buttons sit on the same row as the
+                        # "الوصف والمناقشة" label so it's unambiguous that
+                        # bold/italic/lists/link operate on this textarea
+                        # only, not on the decision / legal-refs / target
+                        # fields below.
+                        with ui.row().classes(
+                            "w-full items-center no-wrap gap-2 mt-1"
+                        ):
+                            ui.icon("description").classes("text-primary")
+                            ui.label("الوصف والمناقشة").classes(
+                                "text-sm font-medium flex-1"
+                            )
                             ui.button(
                                 icon="format_bold",
                                 on_click=lambda c=art_class: ui.run_javascript(
@@ -2567,17 +2646,39 @@ def _articles_list(meeting: Meeting) -> None:
                                 icon="spellcheck",
                                 on_click=lambda a=article: _open_spell_check(a),
                             ).props("flat dense").tooltip("التدقيق الإملائي")
-                        ui.textarea("الوصف والمناقشة").bind_value(
-                            article, "body"
-                        ).props(f'rows=4 autogrow input-class="{art_class}"').classes(
-                            "w-full"
-                        )
-                        ui.textarea("القرار / التوصية").bind_value(
-                            article, "decision"
-                        ).props("rows=2 autogrow").classes("w-full")
-                        ui.textarea("مستند القرار").bind_value(
-                            article, "legal_refs"
-                        ).props("rows=2 autogrow").classes("w-full")
+                        ui.textarea().bind_value(article, "body").props(
+                            f'rows=4 autogrow input-class="{art_class}"'
+                        ).classes("w-full")
+
+                        with ui.row().classes(
+                            "w-full items-center gap-2 mt-1"
+                        ):
+                            ui.icon("gavel").classes("text-primary")
+                            ui.label("القرار / التوصية").classes(
+                                "text-sm font-medium"
+                            )
+                        ui.textarea().bind_value(article, "decision").props(
+                            "rows=2 autogrow"
+                        ).classes("w-full")
+
+                        with ui.row().classes(
+                            "w-full items-center gap-2 mt-1"
+                        ):
+                            ui.icon("policy").classes("text-primary")
+                            ui.label("مستند القرار").classes(
+                                "text-sm font-medium"
+                            )
+                        ui.textarea().bind_value(article, "legal_refs").props(
+                            "rows=2 autogrow"
+                        ).classes("w-full")
+
+                        with ui.row().classes(
+                            "w-full items-center gap-2 mt-1"
+                        ):
+                            ui.icon("groups").classes("text-primary")
+                            ui.label("الجهة ذات العلاقة").classes(
+                                "text-sm font-medium"
+                            )
                         # Combobox over previously-used targets (config-
                         # persisted, harvested at save time) plus template
                         # targets and any target typed elsewhere in this
@@ -2585,7 +2686,6 @@ def _articles_list(meeting: Meeting) -> None:
                         # + add-unique, same as the committee field.
                         ui.select(
                             options=_get_known_targets(),
-                            label="الجهة ذات العلاقة",
                             with_input=True,
                             new_value_mode="add-unique",
                         ).bind_value(article, "target").classes("w-full")
@@ -2622,25 +2722,6 @@ def _articles_list(meeting: Meeting) -> None:
                                     a, None, _articles_list.refresh
                                 ),
                             ).props("dense unelevated").classes("mt-2")
-
-                        with ui.row().classes("w-full justify-end gap-2"):
-                            ui.button(
-                                "حفظ كقالب",
-                                icon="library_add",
-                                on_click=(
-                                    lambda a=article,
-                                    m=meeting: _open_save_article_template(a, m)
-                                ),
-                            ).props("flat")
-                            ui.button(
-                                "حذف الموضوع",
-                                icon="delete",
-                                on_click=lambda a=article: _confirm(
-                                    "تأكيد الحذف",
-                                    f"هل تريد حذف الموضوع: «{(a.title.strip() or 'بدون عنوان')[:80]}»؟",
-                                    lambda art=a: _remove_article(meeting, art),
-                                ),
-                            ).props("flat color=negative")
 
 
 def _open_table_editor(article: Article, table_index: int | None, on_save) -> None:
