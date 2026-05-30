@@ -6,8 +6,10 @@ import subprocess
 import sys
 import time
 import webbrowser
+from dataclasses import dataclass
 from datetime import date as _date_cls
 from pathlib import Path
+from typing import Callable
 
 from nicegui import app, ui
 
@@ -564,6 +566,20 @@ def _register_fonts() -> None:
         "background: #1F2937 !important; "
         "}"
     )
+    # Command palette row hover + selection. Done via a CSS rule (not
+    # Tailwind `dark:` classes, which Quasar's class processor doesn't
+    # understand) so light and dark modes both get sensible contrast.
+    cmd_palette_rule = (
+        ".cmd-palette-row:hover { background-color: rgba(0,0,0,0.05); } "
+        "body.body--dark .cmd-palette-row:hover { "
+        "background-color: rgba(255,255,255,0.06); } "
+        ".cmd-palette-row--selected, "
+        ".cmd-palette-row--selected:hover { "
+        "background-color: rgba(25,118,210,0.15); } "
+        "body.body--dark .cmd-palette-row--selected, "
+        "body.body--dark .cmd-palette-row--selected:hover { "
+        "background-color: rgba(100,181,246,0.20); }"
+    )
     # Hide any q-menu that carries the warming-up class so the one-shot
     # mount we do at startup (to prime Quasar's Teleport target) never
     # flickers on screen. The class is added before open() and removed
@@ -694,7 +710,7 @@ def _register_fonts() -> None:
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
         f"{dark_header_rule} {notify_click_rule} {article_open_rule} "
-        f"{menu_warmup_rule}</style>"
+        f"{menu_warmup_rule} {cmd_palette_rule}</style>"
         f"<script>{notify_dismiss_js}</script>"
         f"<script>{article_body_js}</script>"
         f"<script>{autogrow_refocus_js}</script>",
@@ -1143,22 +1159,34 @@ def _pdf_view() -> None:
             ui.image(url).classes("max-w-3xl w-full border rounded shadow-sm")
 
 
-_SHORTCUTS = [
-    ("موضوع جديد", ["Ctrl", "N"]),
-    ("اجتماع جديد", ["Ctrl", "Shift", "N"]),
-    ("حفظ", ["Ctrl", "S"]),
-    ("فتح", ["Ctrl", "O"]),
-    ("الاجتماعات الأخيرة", ["Ctrl", "R"]),
-    ("نسخ كقالب", ["Ctrl", "D"]),
-    ("فتح مجلد الاجتماع", ["Ctrl", "F"]),
-    ("التدقيق الإملائي لكل المواضيع", ["Ctrl", "P"]),
-    ("نقل الموضوع للأعلى/للأسفل", ["Ctrl", "↑↓"]),
-    ("تصدير PDF", ["Ctrl", "E"]),
-    ("بيانات الاجتماع", ["Ctrl", "1"]),
-    ("المواضيع", ["Ctrl", "2"]),
-    ("الاعتماد", ["Ctrl", "3"]),
-    ("معاينة", ["Ctrl", "4"]),
-]
+@dataclass
+class _Command:
+    """A user-invocable action.
+
+    label    — Arabic title shown in the palette and shortcuts dialog.
+    action   — sync or async callable; the palette awaits coroutine results.
+    shortcut — tuple of key-name parts (e.g. ("Ctrl", "N")) or None. The
+               last element is matched case-insensitively against
+               KeyboardEvent.key.name. Modifier names (Ctrl, Shift) are
+               read from event.modifiers, not from this list.
+    when     — predicate returning True iff the command should be active
+               right now. None = always available. Disabled commands are
+               hidden from the palette and refuse to fire from a shortcut.
+    icon     — Material Symbols icon shown next to the label in the palette.
+    """
+    label: str
+    action: Callable
+    shortcut: tuple[str, ...] | None = None
+    when: Callable[[], bool] | None = None
+    icon: str | None = None
+
+    def is_active(self) -> bool:
+        return self.when is None or bool(self.when())
+
+
+# Set by _index() once the per-page commands are built. The shortcut
+# dispatcher, the help dialog, and the command palette all read from this.
+_commands: list[_Command] = []
 
 
 def _kbd_html(keys: list[str]) -> str:
@@ -1172,15 +1200,127 @@ def _kbd_html(keys: list[str]) -> str:
     )
 
 
+def _shortcut_extras() -> list[tuple[str, list[str]]]:
+    """Shortcuts not represented as discrete commands.
+
+    Article reordering is a contextual action (moves whichever article has
+    focus) so it's wired directly in _handle_key, not in the command list.
+    Surface it here so the cheatsheet still mentions it.
+    """
+    return [("نقل الموضوع للأعلى/للأسفل", ["Ctrl", "↑↓"])]
+
+
 def _show_shortcuts() -> None:
+    entries: list[tuple[str, list[str]]] = []
+    for cmd in _commands:
+        if cmd.shortcut is None:
+            continue
+        entries.append((cmd.label, list(cmd.shortcut)))
+    entries.extend(_shortcut_extras())
+    entries.append(("لوحة الأوامر", ["Ctrl", "Shift", "P"]))
+
     with ui.dialog() as dialog, ui.card().classes("min-w-[320px] max-w-[480px]"):
         ui.label("اختصارات لوحة المفاتيح").classes("text-lg font-semibold")
-        for action, keys in _SHORTCUTS:
+        for action, keys in entries:
             with ui.row().classes("w-full justify-between items-center gap-4"):
                 ui.label(action).classes("text-sm")
                 ui.html(_kbd_html(keys))
         with ui.row().classes("w-full justify-end mt-2"):
             ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+    dialog.open()
+
+
+async def _run_command(cmd: _Command) -> None:
+    """Invoke a command's action, awaiting it if it's a coroutine."""
+    result = cmd.action()
+    if asyncio.iscoroutine(result):
+        await result
+
+
+def _open_command_palette() -> None:
+    """VS Code-style command palette (Ctrl+Shift+P).
+
+    Lists every active command (those whose `when` predicate passes), with
+    a substring filter on the Arabic label. Enter runs the highlighted
+    item, ↑/↓ move the highlight, Esc closes (handled by Quasar's q-dialog).
+    """
+    active = [c for c in _commands if c.is_active()]
+    state = {"selected": 0, "filtered": list(active)}
+
+    with ui.dialog() as dialog, ui.card().classes(
+        "w-[480px] max-w-[90vw] p-2 gap-2 overflow-hidden"
+    ):
+        # dir=rtl (not auto) so the placeholder right-aligns immediately
+        # even while the field is empty — auto only flips once the user
+        # starts typing Arabic. w-full + the card's own p-2 keeps the
+        # field flush within the dialog without overflowing.
+        search = (
+            ui.input(placeholder="ابحث عن أمر...")
+            .props('autofocus dense outlined dir="rtl"')
+            .classes("w-full")
+        )
+
+        list_container = ui.column().classes(
+            "w-full gap-0 max-h-[50vh] overflow-y-auto"
+        )
+
+        def _refilter() -> None:
+            q = (search.value or "").strip().lower()
+            state["filtered"] = [
+                c for c in active if not q or q in c.label.lower()
+            ]
+            if state["selected"] >= len(state["filtered"]):
+                state["selected"] = 0
+            _render()
+
+        async def _run(cmd: _Command) -> None:
+            dialog.close()
+            await _run_command(cmd)
+
+        def _render() -> None:
+            list_container.clear()
+            with list_container:
+                if not state["filtered"]:
+                    ui.label("لا توجد أوامر مطابقة").classes(
+                        "p-3 text-sm text-gray-500"
+                    )
+                    return
+                for i, cmd in enumerate(state["filtered"]):
+                    classes = (
+                        "w-full items-center gap-3 px-3 py-2 rounded "
+                        "cursor-pointer no-wrap cmd-palette-row"
+                    )
+                    if i == state["selected"]:
+                        classes += " cmd-palette-row--selected"
+                    row = ui.row().classes(classes)
+                    row.on("click", lambda c=cmd: _run(c))
+                    with row:
+                        if cmd.icon:
+                            ui.icon(cmd.icon).classes("text-base")
+                        ui.label(cmd.label).classes("flex-1 text-sm")
+                        if cmd.shortcut:
+                            ui.html(_kbd_html(list(cmd.shortcut))).classes(
+                                "text-xs"
+                            )
+
+        def _move(delta: int) -> None:
+            if not state["filtered"]:
+                return
+            n = len(state["filtered"])
+            state["selected"] = (state["selected"] + delta) % n
+            _render()
+
+        async def _accept() -> None:
+            if state["filtered"]:
+                await _run(state["filtered"][state["selected"]])
+
+        search.on_value_change(lambda _: _refilter())
+        search.on("keydown.down.prevent", lambda _: _move(+1))
+        search.on("keydown.up.prevent", lambda _: _move(-1))
+        search.on("keydown.enter.prevent", lambda _: _accept())
+
+        _render()
+
     dialog.open()
 
 
@@ -1588,6 +1728,109 @@ def _index() -> None:
         save_theme("dark" if new_value else "light")
         theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
 
+    def _open_recent_menu() -> None:
+        if _recent_menu is None:
+            return
+        if _recent_menu_refresh is not None:
+            _recent_menu_refresh()
+        _recent_menu.open()
+
+    def _switch_tab(name: str) -> None:
+        if _tabs_ref is not None:
+            _tabs_ref.set_value(name)
+
+    def _has_pdf() -> bool:
+        return _pdf_path is not None and _pdf_path.exists()
+
+    # Single source of truth for every keyboard-shortcut and palette entry.
+    # Order here is also the palette order when no query is typed.
+    global _commands
+    _commands = [
+        _Command(
+            "موضوع جديد", lambda: _add_article(_meeting),
+            ("Ctrl", "N"), icon="add",
+        ),
+        _Command(
+            "اجتماع جديد", _new_meeting,
+            ("Ctrl", "Shift", "N"), icon="note_add",
+        ),
+        _Command(
+            "حفظ", _save_current_meeting,
+            ("Ctrl", "S"), icon="save",
+        ),
+        _Command(
+            "فتح", _open_meeting,
+            ("Ctrl", "O"), icon="folder_open",
+        ),
+        _Command(
+            "الاجتماعات الأخيرة", _open_recent_menu,
+            ("Ctrl", "R"),
+            when=lambda: bool(load_recent_meetings()),
+            icon="history",
+        ),
+        _Command(
+            "نسخ كقالب", _duplicate_as_template,
+            ("Ctrl", "D"), icon="content_copy",
+        ),
+        _Command(
+            "فتح مجلد الاجتماع", _open_meeting_folder,
+            ("Ctrl", "F"), icon="folder",
+        ),
+        _Command(
+            "التدقيق الإملائي لكل المواضيع",
+            lambda: _check_all_articles(_meeting),
+            ("Ctrl", "P"),
+            when=lambda: bool(_meeting.articles),
+            icon="spellcheck",
+        ),
+        _Command(
+            "تصدير PDF", _compile_meeting,
+            ("Ctrl", "E"), icon="picture_as_pdf",
+        ),
+        _Command(
+            "بيانات الاجتماع", lambda: _switch_tab("front"),
+            ("Ctrl", "1"), icon="event",
+        ),
+        _Command(
+            "المواضيع", lambda: _switch_tab("articles"),
+            ("Ctrl", "2"), icon="article",
+        ),
+        _Command(
+            "الاعتماد", lambda: _switch_tab("end"),
+            ("Ctrl", "3"), icon="verified",
+        ),
+        _Command(
+            "معاينة PDF", lambda: _switch_tab("pdf"),
+            ("Ctrl", "4"), icon="picture_as_pdf",
+        ),
+        # Commands without a default shortcut — palette-only:
+        _Command(
+            "تبديل المظهر", toggle_theme, icon="dark_mode",
+        ),
+        _Command(
+            "الإعدادات", lambda: _open_settings(info), icon="settings",
+        ),
+        _Command(
+            "حول التطبيق", lambda: _open_about(info), icon="info",
+        ),
+        _Command(
+            "اختصارات لوحة المفاتيح", _show_shortcuts, icon="keyboard",
+        ),
+        _Command(
+            "فتح PDF في القارئ الافتراضي",
+            lambda: _open_in_default_editor(_pdf_path),
+            when=_has_pdf, icon="open_in_new",
+        ),
+        _Command(
+            "طباعة الكل", lambda: _print_pdf(_pdf_path),
+            when=_has_pdf, icon="print",
+        ),
+        _Command(
+            "طباعة آخر صفحة", _print_last_page,
+            when=_has_pdf, icon="draw",
+        ),
+    ]
+
     with ui.header().classes("items-center justify-between"):
         with ui.row().classes("items-center gap-2"):
             icon_url = _get_icon_url()
@@ -1727,40 +1970,42 @@ def _index() -> None:
             return
         if not e.modifiers.ctrl:
             return
-        k = (e.key.name or "").lower()
-        if k == "n":
-            # Ctrl+Shift+N keeps the original "new meeting" behaviour;
-            # plain Ctrl+N is the much higher-frequency "add an article
-            # to the current meeting" action.
-            if e.modifiers.shift:
-                _new_meeting()
-            else:
-                _add_article(_meeting)
-        elif k == "s":
-            await _save_current_meeting()
-        elif k == "o":
-            await _open_meeting()
-        elif k == "r":
-            if _recent_menu is not None:
-                if _recent_menu_refresh is not None:
-                    _recent_menu_refresh()
-                _recent_menu.open()
-        elif k == "d":
-            _duplicate_as_template()
-        elif k == "f":
-            _open_meeting_folder()
-        elif k == "p":
-            await _check_all_articles(_meeting)
-        elif k == "e":
-            await _compile_meeting()
-        elif k in ("1", "2", "3", "4") and _tabs_ref is not None:
-            _tabs_ref.set_value(
-                {"1": "front", "2": "articles", "3": "end", "4": "pdf"}[k]
-            )
-        elif e.key.arrow_up:
+
+        name = (e.key.name or "").lower()
+
+        # Ctrl+Shift+P is the command palette itself — handled before the
+        # generic registry lookup so it can't be shadowed by anything.
+        if e.modifiers.shift and name == "p":
+            _open_command_palette()
+            return
+
+        # Ctrl+↑/↓ is contextual (moves whichever article holds focus),
+        # not a discrete registry command — keep the direct binding.
+        if e.key.arrow_up and not e.modifiers.shift:
             await _move_focused_article(-1)
-        elif e.key.arrow_down:
+            return
+        if e.key.arrow_down and not e.modifiers.shift:
             await _move_focused_article(+1)
+            return
+
+        # Registry-driven dispatch. A shortcut like ("Ctrl", "Shift", "N")
+        # matches only when Shift is held; ("Ctrl", "N") matches only when
+        # Shift is NOT held — so plain Ctrl+N and Ctrl+Shift+N stay
+        # distinct without an explicit branch here.
+        for cmd in _commands:
+            if cmd.shortcut is None:
+                continue
+            keys = [k.lower() for k in cmd.shortcut]
+            target = keys[-1]
+            if target != name:
+                continue
+            wants_shift = "shift" in keys[:-1]
+            if wants_shift != bool(e.modifiers.shift):
+                continue
+            if not cmd.is_active():
+                return
+            await _run_command(cmd)
+            return
 
     ui.keyboard(on_key=_handle_key)
     ui.timer(0.7, _refresh_periodic_state)
