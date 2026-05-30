@@ -86,12 +86,10 @@ _front_tab = None
 _articles_tab = None
 _end_tab = None
 _pdf_tab = None
-_recent_menu_refresh = None
 # Populated by _check_for_update when GitHub reports a newer release.
 # The _update_button refreshable reads this and renders the toolbar
 # button when a tag is set; until then the slot is empty.
 _update_available: dict = {"tag": "", "url": ""}
-_recent_menu = None
 _templates_menu_refresh = None
 _saved_fingerprint: str | None = None
 # Path the current meeting was last loaded from or saved to. Used by
@@ -580,16 +578,6 @@ def _register_fonts() -> None:
         "body.body--dark .cmd-palette-row--selected:hover { "
         "background-color: rgba(100,181,246,0.20); }"
     )
-    # Hide any q-menu that carries the warming-up class so the one-shot
-    # mount we do at startup (to prime Quasar's Teleport target) never
-    # flickers on screen. The class is added before open() and removed
-    # after close() in _warmup_recent_menu.
-    menu_warmup_rule = (
-        ".q-menu.warming-up { "
-        "opacity: 0 !important; "
-        "pointer-events: none !important; "
-        "}"
-    )
     # Subtle background tint on an opened article. Scoped via the direct-
     # child selector so the highlight applies only to the article's outer
     # expansion — the nested "tables" expansion inside an article doesn't
@@ -710,7 +698,7 @@ def _register_fonts() -> None:
     ui.add_head_html(
         f"<style>{faces} {body_rule} {resize_rule} {table_cell_rule} "
         f"{dark_header_rule} {notify_click_rule} {article_open_rule} "
-        f"{menu_warmup_rule} {cmd_palette_rule}</style>"
+        f"{cmd_palette_rule}</style>"
         f"<script>{notify_dismiss_js}</script>"
         f"<script>{article_body_js}</script>"
         f"<script>{autogrow_refocus_js}</script>",
@@ -763,8 +751,6 @@ def _apply_loaded_meeting(loaded: Meeting, src: Path) -> None:
     _articles_list.refresh()
     _signatures_preview.refresh()
     add_recent_meeting(src)
-    if _recent_menu_refresh is not None:
-        _recent_menu_refresh()
     if _templates_menu_refresh is not None:
         _templates_menu_refresh()
     _mark_clean()
@@ -913,8 +899,6 @@ def _is_meeting_dir(src: Path) -> bool:
 def _open_meeting_at(src: Path) -> None:
     if not _is_meeting_dir(src):
         remove_recent_meeting(src)
-        if _recent_menu_refresh is not None:
-            _recent_menu_refresh()
         _notify(f"الاجتماع غير موجود: {src}", type="negative")
         return
     try:
@@ -1040,8 +1024,6 @@ async def _save_current_meeting() -> Path | None:
     # list so it shows up in the autocomplete on the next render — both
     # for new articles in this meeting and for any future meeting.
     add_known_targets([a.target for a in _meeting.articles if a.target])
-    if _recent_menu_refresh is not None:
-        _recent_menu_refresh()
     _mark_clean()
     _notify(f"حُفظ في: {dest}", type="positive", timeout=5000)
     return dest
@@ -1324,35 +1306,129 @@ def _open_command_palette() -> None:
     dialog.open()
 
 
-def _warmup_recent_menu() -> None:
-    """Force Quasar's q-menu to do its first-time Teleport mount + layout
-    before the user ever clicks the recent meetings button.
+def _open_recent_dialog() -> None:
+    """Recent-meetings picker, modelled on the command palette.
 
-    Quasar lazily attaches q-menu content into <body> only on the first
-    open, which is what causes the "appears, then jumps into place"
-    behaviour. We do that first mount proactively right after the page
-    settles. The menu_warmup_rule CSS hides anything tagged
-    'warming-up' so the brief open is invisible; we strip the class
-    after a small delay so a real subsequent open animates normally.
+    Replaces the old q-menu hanging off the toolbar button. The dialog is
+    rebuilt on every open, so we don't need a refresh hook for callers
+    that mutate the recent-meetings list (open, save, prune); the next
+    open just picks up the current state. Search filters substring on
+    the rendered label; ↑/↓ move the selection; Enter opens; Esc closes.
     """
-    if _recent_menu is None:
-        return
-    _recent_menu.classes(add="warming-up")
-    _recent_menu.open()
+    recents = load_recent_meetings()
+    # Prune entries that no longer exist on disk so the picker only
+    # offers openable meetings. Same auto-clean the old menu did.
+    live = [p for p in recents if _is_meeting_dir(p)]
+    if len(live) != len(recents):
+        for dead in [p for p in recents if p not in live]:
+            remove_recent_meeting(dead)
+    recents = live
 
-    def _close_and_unhide() -> None:
-        if _recent_menu is None:
+    entries = [(p, _meeting_label_for_path(p)) for p in recents]
+    state = {"selected": 0, "filtered": list(entries)}
+
+    with ui.dialog() as dialog, ui.card().classes(
+        "w-[480px] max-w-[90vw] p-2 gap-2 overflow-hidden"
+    ):
+        ui.label("الاجتماعات الأخيرة").classes("text-base font-semibold px-1")
+
+        if not entries:
+            ui.label("لا توجد اجتماعات سابقة").classes(
+                "p-3 text-sm text-gray-500"
+            )
+            with ui.row().classes("w-full justify-end mt-1"):
+                ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+            dialog.open()
             return
-        _recent_menu.close()
-        # One more tick before stripping the class — gives the close
-        # transition (if any) time to fully settle in the hidden state.
-        ui.timer(
-            0.1,
-            lambda: _recent_menu.classes(remove="warming-up"),
-            once=True,
+
+        search = (
+            ui.input(placeholder="ابحث في الاجتماعات الأخيرة...")
+            .props('autofocus dense outlined dir="rtl"')
+            .classes("w-full")
         )
 
-    ui.timer(0.08, _close_and_unhide, once=True)
+        list_container = ui.column().classes(
+            "w-full gap-0 max-h-[50vh] overflow-y-auto"
+        )
+
+        def _open(p: Path) -> None:
+            dialog.close()
+            _open_meeting_at(p)
+
+        def _forget(p: Path) -> None:
+            remove_recent_meeting(p)
+            state["filtered"] = [(q, lbl) for q, lbl in state["filtered"] if q != p]
+            if state["selected"] >= len(state["filtered"]):
+                state["selected"] = max(0, len(state["filtered"]) - 1)
+            _render()
+
+        def _forget_all() -> None:
+            clear_recent_meetings()
+            dialog.close()
+
+        def _refilter() -> None:
+            q = (search.value or "").strip().lower()
+            state["filtered"] = [
+                (p, lbl) for p, lbl in entries if not q or q in lbl.lower()
+            ]
+            if state["selected"] >= len(state["filtered"]):
+                state["selected"] = 0
+            _render()
+
+        def _render() -> None:
+            list_container.clear()
+            with list_container:
+                if not state["filtered"]:
+                    ui.label("لا توجد نتائج").classes(
+                        "p-3 text-sm text-gray-500"
+                    )
+                    return
+                for i, (p, lbl) in enumerate(state["filtered"]):
+                    classes = (
+                        "w-full items-center gap-3 px-3 py-2 rounded "
+                        "cursor-pointer no-wrap cmd-palette-row"
+                    )
+                    if i == state["selected"]:
+                        classes += " cmd-palette-row--selected"
+                    row = ui.row().classes(classes)
+                    row.on("click", lambda x=p: _open(x))
+                    with row:
+                        ui.icon("description").classes("text-base")
+                        ui.label(lbl).classes("flex-1 text-sm")
+                        close_btn = (
+                            ui.button(icon="close")
+                            .props("flat round dense size=sm color=negative")
+                            .tooltip("إزالة من القائمة")
+                        )
+                        close_btn.on("click.stop", lambda e, x=p: _forget(x))
+
+        def _move(delta: int) -> None:
+            if not state["filtered"]:
+                return
+            n = len(state["filtered"])
+            state["selected"] = (state["selected"] + delta) % n
+            _render()
+
+        def _accept() -> None:
+            if state["filtered"]:
+                _open(state["filtered"][state["selected"]][0])
+
+        search.on_value_change(lambda _: _refilter())
+        search.on("keydown.down.prevent", lambda _: _move(+1))
+        search.on("keydown.up.prevent", lambda _: _move(-1))
+        search.on("keydown.enter.prevent", lambda _: _accept())
+
+        _render()
+
+        with ui.row().classes("w-full justify-end items-center mt-1 gap-2"):
+            ui.button(
+                "نسيان كل الاجتماعات",
+                icon="delete_sweep",
+                on_click=_forget_all,
+            ).props("flat color=negative")
+            ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+
+    dialog.open()
 
 
 def _subprocess_kwargs() -> dict:
@@ -1728,13 +1804,6 @@ def _index() -> None:
         save_theme("dark" if new_value else "light")
         theme_btn.props(f"icon={'light_mode' if new_value else 'dark_mode'}")
 
-    def _open_recent_menu() -> None:
-        if _recent_menu is None:
-            return
-        if _recent_menu_refresh is not None:
-            _recent_menu_refresh()
-        _recent_menu.open()
-
     def _switch_tab(name: str) -> None:
         if _tabs_ref is not None:
             _tabs_ref.set_value(name)
@@ -1763,7 +1832,7 @@ def _index() -> None:
             ("Ctrl", "O"), icon="folder_open",
         ),
         _Command(
-            "الاجتماعات الأخيرة", _open_recent_menu,
+            "الاجتماعات الأخيرة", _open_recent_dialog,
             ("Ctrl", "R"),
             when=lambda: bool(load_recent_meetings()),
             icon="history",
@@ -1854,67 +1923,9 @@ def _index() -> None:
             ui.button(icon="content_copy", on_click=_duplicate_as_template).props(
                 "flat round dense color=white"
             ).tooltip("نسخ الاجتماع كقالب")
-            recent_btn = (
-                ui.button(icon="history")
-                .props("flat round dense color=white")
-                .tooltip("الاجتماعات الأخيرة")
-            )
-            with recent_btn:
-                _recent_menu_local = ui.menu()
-                with _recent_menu_local:
-
-                    @ui.refreshable
-                    def _recent_items() -> None:
-                        recents = load_recent_meetings()
-                        # Prune entries that no longer exist on disk so the
-                        # menu only shows openable meetings. Side-effect: the
-                        # stored list shrinks too, so the user doesn't have to
-                        # × them away manually.
-                        live = [p for p in recents if _is_meeting_dir(p)]
-                        if len(live) != len(recents):
-                            for dead in [p for p in recents if p not in live]:
-                                remove_recent_meeting(dead)
-                        recents = live
-                        if not recents:
-                            ui.label("لا توجد اجتماعات سابقة").classes(
-                                "p-2 text-sm text-gray-500"
-                            )
-                            return
-                        for p in recents:
-                            with ui.menu_item(
-                                on_click=lambda x=p: (
-                                    _open_meeting_at(x),
-                                    _recent_menu_local.close(),
-                                )
-                            ):
-                                with ui.row().classes(
-                                    "w-full items-center justify-between gap-3 min-w-[280px]"
-                                ):
-                                    ui.label(_meeting_label_for_path(p)).classes(
-                                        "flex-1"
-                                    )
-                                    ui.button(icon="close").props(
-                                        "flat round dense size=sm color=negative"
-                                    ).tooltip("إزالة من القائمة").on(
-                                        "click.stop",
-                                        lambda e, x=p: (
-                                            remove_recent_meeting(x),
-                                            _recent_items.refresh(),
-                                        ),
-                                    )
-                        ui.separator()
-                        ui.menu_item(
-                            "نسيان كل الاجتماعات",
-                            on_click=lambda: (
-                                clear_recent_meetings(),
-                                _recent_items.refresh(),
-                            ),
-                        ).classes("text-negative")
-
-                    _recent_items()
-            global _recent_menu_refresh, _recent_menu
-            _recent_menu_refresh = _recent_items.refresh
-            _recent_menu = _recent_menu_local
+            ui.button(icon="history", on_click=_open_recent_dialog).props(
+                "flat round dense color=white"
+            ).tooltip("الاجتماعات الأخيرة")
             ui.button(icon="picture_as_pdf", on_click=_compile_meeting).props(
                 "flat round dense color=white"
             ).tooltip("تصدير PDF")
@@ -2012,10 +2023,6 @@ def _index() -> None:
     # Auto-update check — fire once a few seconds after the page has
     # settled so the network call doesn't fight with first paint.
     ui.timer(3.0, _check_for_update, once=True)
-    # Pre-mount the recent meetings menu so the first user-triggered
-    # open doesn't show Quasar's lazy-mount jitter. CSS keeps it
-    # invisible during this warmup window.
-    ui.timer(0.8, _warmup_recent_menu, once=True)
 
 
 def _front_matter_panel(meeting: Meeting) -> None:
