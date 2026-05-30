@@ -1488,6 +1488,193 @@ def _open_recent_dialog() -> None:
     dialog.open()
 
 
+@dataclass
+class _SearchHit:
+    """One match from the cross-meeting article search."""
+    meeting_path: Path
+    meeting_label: str
+    article_index: int  # 0-based, matches the article-row-N class on disk
+    article_title: str
+    field_label: str   # which field matched, for the snippet caption
+    snippet: str
+
+
+# Article-level fields the search walks. Order matters: the first matching
+# field per article wins so each article shows up as one hit, not five.
+_SEARCH_FIELDS: list[tuple[str, str]] = [
+    ("title", "العنوان"),
+    ("body", "الوصف"),
+    ("decision", "القرار"),
+    ("legal_refs", "مستند القرار"),
+    ("target", "الجهة"),
+]
+
+
+def _make_snippet(text: str, query: str, width: int = 80) -> str:
+    """Window of `text` around the first occurrence of `query`, with ellipses
+    on either side when we trimmed and newlines flattened to spaces so the
+    snippet stays one line in the results list."""
+    flat = (text or "").replace("\n", " ")
+    idx = flat.lower().find(query.lower())
+    if idx < 0:
+        return flat[:width]
+    half = max(0, (width - len(query)) // 2)
+    start = max(0, idx - half)
+    end = min(len(flat), idx + len(query) + half)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(flat) else ""
+    return prefix + flat[start:end] + suffix
+
+
+def _search_articles(root: Path, query: str) -> list[_SearchHit]:
+    """Walk meetings_root for meetings and substring-match `query` across
+    article fields (title, body, decision, legal_refs, target).
+
+    Skips main.typ entirely so attendee names / committee names don't
+    pollute results. Each article contributes at most one hit, labeled
+    with the earliest matching field. Returns an empty list when the
+    root is missing or the query is whitespace.
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    if not root.exists() or not root.is_dir():
+        return []
+    q_lower = q.lower()
+    hits: list[_SearchHit] = []
+    # rglob("main.typ") finds every meeting dir under the root, regardless
+    # of how committees nest their year/number subfolders.
+    for main_path in root.rglob("main.typ"):
+        meeting_dir = main_path.parent
+        try:
+            meeting = read_meeting(meeting_dir)
+        except Exception:
+            continue
+        label = _meeting_label_for_path(meeting_dir)
+        for i, article in enumerate(meeting.articles):
+            for field_attr, field_label in _SEARCH_FIELDS:
+                text = getattr(article, field_attr, "") or ""
+                if q_lower in text.lower():
+                    hits.append(_SearchHit(
+                        meeting_path=meeting_dir,
+                        meeting_label=label,
+                        article_index=i,
+                        article_title=(article.title or f"موضوع {i + 1}").strip(),
+                        field_label=field_label,
+                        snippet=_make_snippet(text, q),
+                    ))
+                    break
+    return hits
+
+
+def _open_search_dialog() -> None:
+    """Cross-meeting article search dialog (Ctrl+Shift+F).
+
+    Modelled on the command palette: input on top, results below. Search
+    is triggered by Enter or by the explicit "بحث" button, not on every
+    keystroke (walking every meeting + parsing each one isn't cheap
+    enough to debounce against a typing cadence). Clicking a result
+    closes the dialog, loads the meeting, and scrolls + auto-expands
+    the matched article after the page settles.
+    """
+    root = load_meetings_root()
+    state: dict = {"hits": [], "ran": False}
+
+    with ui.dialog() as dialog, ui.card().classes(
+        "w-[640px] max-w-[90vw] h-[70vh] p-2 gap-2 overflow-hidden"
+    ):
+        ui.label("بحث في الاجتماعات").classes(
+            "text-base font-semibold px-1"
+        )
+        with ui.row().classes("w-full items-center gap-2"):
+            search_input = (
+                ui.input(placeholder="ابحث في عناوين ومحتوى المواضيع...")
+                .props('autofocus dense outlined dir="rtl"')
+                .classes("flex-1")
+            )
+            ui.button(
+                "بحث",
+                icon="search",
+                on_click=lambda: _run_search(),
+            ).props("unelevated color=primary dense")
+
+        results = ui.column().classes(
+            "w-full gap-0 flex-1 overflow-y-auto"
+        )
+
+        def _open_hit(hit: _SearchHit) -> None:
+            dialog.close()
+            _open_meeting_at(hit.meeting_path)
+            # Defer expand+scroll until after _open_meeting_at's refresh
+            # has actually rendered the new article rows. setTimeout in
+            # the browser is simpler than threading a NiceGUI ui.timer
+            # through this click handler.
+            ui.run_javascript(
+                "setTimeout(() => {"
+                f"  const row = document.querySelector('.article-row-{hit.article_index}');"
+                "  if (!row) return;"
+                "  row.scrollIntoView({behavior:'smooth', block:'center'});"
+                "  if (!row.querySelector('.q-expansion-item--expanded')) {"
+                "    const header = row.querySelector('.q-expansion-item .q-item');"
+                "    if (header) header.click();"
+                "  }"
+                "}, 450);"
+            )
+
+        def _render() -> None:
+            results.clear()
+            with results:
+                if not state["ran"]:
+                    ui.label(
+                        "اضغط Enter للبحث."
+                    ).classes("p-3 text-sm text-gray-500")
+                    return
+                if not state["hits"]:
+                    ui.label(
+                        "لا توجد نتائج."
+                    ).classes("p-3 text-sm text-gray-500")
+                    return
+                for hit in state["hits"]:
+                    row = ui.row().classes(
+                        "w-full items-start gap-3 px-3 py-2 rounded "
+                        "cursor-pointer no-wrap cmd-palette-row"
+                    )
+                    row.on("click", lambda h=hit: _open_hit(h))
+                    with row:
+                        ui.icon("description").classes("text-base mt-1")
+                        with ui.column().classes(
+                            "flex-1 min-w-0 gap-0"
+                        ):
+                            ui.label(
+                                f"{hit.meeting_label}  ·  "
+                                f"{hit.article_index + 1}. {hit.article_title}"
+                            ).classes(
+                                "text-sm font-medium ellipsis min-w-0"
+                            )
+                            ui.label(
+                                f"{hit.field_label}: {hit.snippet}"
+                            ).classes(
+                                "text-xs text-gray-500 ellipsis min-w-0"
+                            )
+
+        def _run_search() -> None:
+            q = (search_input.value or "").strip()
+            if not q:
+                return
+            state["ran"] = True
+            state["hits"] = _search_articles(root, q)
+            _render()
+
+        search_input.on("keydown.enter.prevent", lambda _: _run_search())
+
+        _render()
+
+        with ui.row().classes("w-full justify-end mt-1"):
+            ui.button("إغلاق", on_click=dialog.close).props("unelevated")
+
+    dialog.open()
+
+
 def _subprocess_kwargs() -> dict:
     """Extra subprocess kwargs to suppress the transient console window
     Windows pops for each child process. No-op on macOS/Linux.
@@ -1906,6 +2093,12 @@ def _index() -> None:
         _Command(
             "فتح مجلد الاجتماع", _open_meeting_folder,
             ("Ctrl", "F"), icon="folder",
+        ),
+        _Command(
+            "بحث في الاجتماعات", _open_search_dialog,
+            ("Ctrl", "Shift", "F"),
+            when=lambda: load_meetings_root().is_dir(),
+            icon="search",
         ),
         _Command(
             "التدقيق الإملائي لكل المواضيع",
