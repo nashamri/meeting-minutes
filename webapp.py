@@ -22,16 +22,29 @@ from main import (
     clear_recent_meetings,
     get_app_info,
     load_article_templates,
+    DEFAULT_FONT_SIZE,
+    DEFAULT_TITLE_SIZE,
+    FONT_LABELS,
+    MAX_FONT_SIZE,
+    MIN_FONT_SIZE,
+    load_font,
+    load_font_size,
     load_known_targets,
     load_meetings_root,
     load_personal_dict,
     load_recent_meetings,
     load_theme,
+    load_title_font,
+    load_title_size,
     load_update_last_seen,
     remove_article_template,
     remove_recent_meeting,
+    save_font,
+    save_font_size,
     save_meetings_root,
     save_theme,
+    save_title_font,
+    save_title_size,
     save_update_last_seen,
 )
 from models import ATTENDANCE_OPTIONS, Article, Meeting, Member
@@ -1972,6 +1985,39 @@ def _open_settings(info: dict) -> None:
                 "الموقع الافتراضي لحفظ المحاضر الجديدة. لن تُنقل المحاضر الموجودة."
             ).classes("text-xs text-gray-400")
 
+        with ui.column().classes("w-full gap-1 mt-3"):
+            ui.label("خط النص").classes("text-sm text-gray-500")
+            with ui.row().classes("w-full items-center gap-2"):
+                font_select = ui.select(
+                    options=dict(FONT_LABELS), value=load_font()
+                ).classes("flex-1")
+                size_input = ui.number(
+                    label="الحجم",
+                    value=load_font_size(),
+                    min=MIN_FONT_SIZE,
+                    max=MAX_FONT_SIZE,
+                    step=1,
+                    format="%d",
+                ).classes("w-24")
+
+        with ui.column().classes("w-full gap-1 mt-3"):
+            ui.label("خط عناوين المواضيع").classes("text-sm text-gray-500")
+            with ui.row().classes("w-full items-center gap-2"):
+                title_font_select = ui.select(
+                    options=dict(FONT_LABELS), value=load_title_font()
+                ).classes("flex-1")
+                title_size_input = ui.number(
+                    label="الحجم",
+                    value=load_title_size(),
+                    min=MIN_FONT_SIZE,
+                    max=MAX_FONT_SIZE,
+                    step=1,
+                    format="%d",
+                ).classes("w-24")
+            ui.label(
+                "تُطبَّق الخطوط والأحجام عند حفظ المحضر التالي."
+            ).classes("text-xs text-gray-400")
+
         # Escape hatch for anything not exposed in the form.
         with ui.column().classes("w-full gap-1 mt-3"):
             ui.label("ملف الإعدادات").classes("text-sm text-gray-500")
@@ -1993,6 +2039,18 @@ def _open_settings(info: dict) -> None:
                     _notify("الرجاء إدخال مسار صالح.", type="negative")
                     return
                 save_meetings_root(new_root)
+                save_font(font_select.value or load_font())
+                save_title_font(title_font_select.value or load_title_font())
+
+                def _clamp(raw, default):
+                    try:
+                        value = int(raw)
+                    except (TypeError, ValueError):
+                        value = default
+                    return max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, value))
+
+                save_font_size(_clamp(size_input.value, DEFAULT_FONT_SIZE))
+                save_title_size(_clamp(title_size_input.value, DEFAULT_TITLE_SIZE))
                 _notify("تم حفظ الإعدادات.", type="positive")
                 dialog.close()
 

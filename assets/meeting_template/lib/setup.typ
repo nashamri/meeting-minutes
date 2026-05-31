@@ -79,11 +79,12 @@
 
     )
     set heading(numbering: "1")
-    set text(lang: "ar", font: "Adobe", size: 14pt)
+    set text(lang: "ar", font: body-font, size: body-size)
     set par(justify: true)
-    show heading: heading => [
-        #heading.body
-    ]
+    show heading: heading => {
+        set text(font: title-font, size: title-size)
+        heading.body
+    }
     set outline.entry(fill: line(length: 100%, stroke: 0.02em + rgb(accent-color)))
     show outline.entry: it => link(
         it.element.location(),

@@ -3,6 +3,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from main import load_font, load_font_size, load_title_font, load_title_size
 from models import Article, Meeting, Member
 
 _RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -47,6 +48,10 @@ def _render_constants(meeting: Meeting) -> str:
         '#let accent-color = "#84469D"\n'
         '#let light-accent-color = "#f8f7fa"\n'
         "#let highlight-papers = false\n"
+        f'#let body-font = "{q(load_font())}"\n'
+        f"#let body-size = {load_font_size()}pt\n"
+        f'#let title-font = "{q(load_title_font())}"\n'
+        f"#let title-size = {load_title_size()}pt\n"
         "\n"
         f'#let meeting-date = "{q(meeting.date)}"\n'
         f'#let meeting-number = "{q(meeting.number)}"\n'

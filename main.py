@@ -19,6 +19,28 @@ CONFIG_DIR = Path(platformdirs.user_config_dir(APP_NAME))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 VALID_THEMES = ("light", "dark")
+# Body and title share the same font catalog. Stored as the Typst family
+# name; UI maps to friendly labels via FONT_LABELS.
+VALID_FONTS = (
+    "Adobe",
+    "Calibri",
+    "Sultan_medium/ghayaty2020",
+    "Almudid",
+    "Sakkal Majalla",
+)
+FONT_LABELS = {
+    "Adobe": "Adobe",
+    "Calibri": "Calibri",
+    "Sultan_medium/ghayaty2020": "Sultan",
+    "Almudid": "Almudid",
+    "Sakkal Majalla": "Sakkal Majalla",
+}
+DEFAULT_FONT = "Adobe"
+DEFAULT_TITLE_FONT = "Sultan_medium/ghayaty2020"
+MIN_FONT_SIZE = 8
+MAX_FONT_SIZE = 24
+DEFAULT_FONT_SIZE = 14
+DEFAULT_TITLE_SIZE = 11
 
 DEFAULT_MEETINGS_ROOT = Path(platformdirs.user_documents_dir()) / "محاضر الاجتماعات"
 
@@ -52,6 +74,74 @@ def save_theme(theme: str) -> None:
         raise ValueError(f"Invalid theme {theme!r}; expected one of {VALID_THEMES}")
     data = _load_config()
     data["theme"] = theme
+    _save_config(data)
+
+
+def load_font() -> str:
+    font = _load_config().get("font")
+    return font if font in VALID_FONTS else DEFAULT_FONT
+
+
+def save_font(font: str) -> None:
+    if font not in VALID_FONTS:
+        raise ValueError(f"Invalid font {font!r}; expected one of {VALID_FONTS}")
+    data = _load_config()
+    data["font"] = font
+    _save_config(data)
+
+
+def load_font_size() -> int:
+    raw = _load_config().get("font_size")
+    if isinstance(raw, (int, float)):
+        size = int(raw)
+        if MIN_FONT_SIZE <= size <= MAX_FONT_SIZE:
+            return size
+    return DEFAULT_FONT_SIZE
+
+
+def save_font_size(size: int) -> None:
+    size = int(size)
+    if not MIN_FONT_SIZE <= size <= MAX_FONT_SIZE:
+        raise ValueError(
+            f"Invalid font size {size!r}; expected {MIN_FONT_SIZE}-{MAX_FONT_SIZE}"
+        )
+    data = _load_config()
+    data["font_size"] = size
+    _save_config(data)
+
+
+def load_title_font() -> str:
+    font = _load_config().get("title_font")
+    return font if font in VALID_FONTS else DEFAULT_TITLE_FONT
+
+
+def save_title_font(font: str) -> None:
+    if font not in VALID_FONTS:
+        raise ValueError(
+            f"Invalid title font {font!r}; expected one of {VALID_FONTS}"
+        )
+    data = _load_config()
+    data["title_font"] = font
+    _save_config(data)
+
+
+def load_title_size() -> int:
+    raw = _load_config().get("title_size")
+    if isinstance(raw, (int, float)):
+        size = int(raw)
+        if MIN_FONT_SIZE <= size <= MAX_FONT_SIZE:
+            return size
+    return DEFAULT_TITLE_SIZE
+
+
+def save_title_size(size: int) -> None:
+    size = int(size)
+    if not MIN_FONT_SIZE <= size <= MAX_FONT_SIZE:
+        raise ValueError(
+            f"Invalid title size {size!r}; expected {MIN_FONT_SIZE}-{MAX_FONT_SIZE}"
+        )
+    data = _load_config()
+    data["title_size"] = size
     _save_config(data)
 
 

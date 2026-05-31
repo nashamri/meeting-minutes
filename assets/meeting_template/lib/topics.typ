@@ -1,8 +1,8 @@
-#import "constants.typ": light-accent-color
+#import "constants.typ": light-accent-color, body-font
 
 #let topic(title, body, decision, articles, target) = {
 
-set text(lang: "ar", font: "Adobe")
+set text(lang: "ar", font: body-font)
 set par(justify: true)
 
 table(columns:(0.5cm, 2.2cm, 1fr),
@@ -12,12 +12,8 @@ inset: 1em,
 fill: (x, y) => if x == 1 { rgb( light-accent-color )},
 [1],
 [الموضوع  #context counter(heading).display(n => str(n + 1)) ],
-[ 
-  #align(center)[
-      #text(font: "Sultan_medium/ghayaty2020", size: 11pt)[
-        = #title 
-      ]
-    ]
+[
+  #align(center)[= #title]
 ],
 
 [2],
